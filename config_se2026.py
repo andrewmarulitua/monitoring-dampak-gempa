@@ -11,7 +11,7 @@ BASE_PATH = "data"
 
 LATEST_FILE = os.path.join(
     BASE_PATH,
-    f"SCRAPING_REKAP_SE2026_{NAMA_KABUPATEN}_LATEST.xlsx"
+    f"SCRAPING_REKAP_DAMPAK_BENCANA_{NAMA_KABUPATEN}_LATEST.xlsx"
 )
 
 HISTORY_PATH = os.path.join(BASE_PATH, "history")
@@ -23,5 +23,5 @@ os.makedirs(HISTORY_PATH, exist_ok=True)
 def archive_filename(timestamp):
     return os.path.join(
         HISTORY_PATH,
-        f"SCRAPING_REKAP_SE2026_{NAMA_KABUPATEN}_{timestamp}.xlsx"
+        f"SCRAPING_REKAP_DAMPAK_BENCANA_{NAMA_KABUPATEN}_{timestamp}.xlsx"
     )

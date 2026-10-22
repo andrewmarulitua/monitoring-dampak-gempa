@@ -6,7 +6,7 @@ import tempfile
 import time
 from config_se2026 import (
     BASE_PATH,
-    LATEST_FILE,
+    LATEST_FILE,  # Anda bisa ganti/sesuaikan dengan path file rekap di config_se2026 atau mendefinisikannya langsung
     NAMA_KABUPATEN,
     archive_filename,
 )
@@ -14,211 +14,241 @@ import pandas as pd
 import requests
 
 # ================= SETTINGS =================
-URL_DATA = "https://fasih-sm.bps.go.id/app/api/analytic/api/v2/assignment/report-progress-by-responsibility"
+URL_DATA = "https://fasih-sm.bps.go.id/app/api/analytic/api/v1/user-progress/progress-users-by-role"
 base_path = BASE_PATH  # FOLDER UNTUK MENYIMPAN DATA HASIL SCRAPPING
+
+# Tentukan nama file Excel utama gabungan
+MAIN_EXCEL_OUTPUT = os.path.join(base_path, "SCRAPING_REKAP_DAMPAK_BENCANA_ENDE_LATEST.xlsx")
 # ==========================================================
 
 
-# ===================== GANTI COOKIE DI SINI =====================
-cookies = {
-    'cf_clearance': 'HQwIeZ.AS7MaosOLHlONXmzkiqUal.b5qak.8P0X_Z0-1784535547-1.2.1.1-oPdlHNW4C0XrGVjAWY9djxZNUrmPrAVBwqz_o7cR73XAAT_UiwRfnQXD6n_EJQV.MNt8QCZ.nAba9BRJR.WCiuCCqpwUyKo0gV7yNsZ2re15VZlKnIwXsuiTQeIPDsqEsvVaOzF5YWtEAt2fVDu0qmpMNqdo8n__nu0dVZSniyYtXUppOglTQqYZ0nB8ZCZfNrYErNEsHrETnRrMRSxGylfEtdVEdRW7XkO7MfUZD2MhhF11b6XvSrm0YPGNPfNLlUuTtWlr72eJ0.LBhmgCM2QPO2EnlAGfS2YlDzEdJenVct0XJmsFQxac1IPEoklYR4tQUZzzPOC1ABiTVsDYNA',
-    'TS018af012': '0167a1c8611f9bc7f94183445ced71dabcd223b3e7a2a292250bd81a273f628c85a18f42264b8fb5338c67d96e7ac7419e44f5edb566f6d0624851c6c471f29b935df9afbedf5add518187fdb88c0b5c425137ce90',
-    'f5avraaaaaaaaaaaaaaaa_session_': 'MHDFICIFPAJCEMEHECIPADBKFGOENAGMGICMOOEBEBBAAMBIPCONEIJCEAGKJOOHAKODPBGOHMNPFIBLFOLAEJAKDKJKFPOJNPNMNCNBDOBDLCMHHGMMPGOEGEOPDMKJ',
-    'TS00000000076': '0868f8be6fab28000307bd280dcb47f67c736c0758a53e745a4dccccf5976c244b72d9d2479889f2e3a7ead8a136937008c7a6fe7009d000e91b480472cc5e3827c1394c1d6041192e343e9350cd4b1976a7b3ea48c0323ed808ff9c1cac72884660009d54d24b6d243818e6cb7a5f3ede339dc20cc3888ab80c20824576004fac5eefc9d49d088035b178b6dc56e0ca3d728f96d77ae1668179a6a148358c28e8eaff9d9e26db09ee2d08af6c675186f1f4f0d08b3376fffa9e245d5fde3596e68c11a4c4e5b62cdba2e0cc483b49c22a223e0e2d902226e2882b898de0b309fa130047c118c4491bc33489a0713ab52d4d649cdc05aab164ef0e0993c52cdb63869d3de0c07297',
-    'TSPD_101_DID': '0868f8be6fab28000307bd280dcb47f67c736c0758a53e745a4dccccf5976c244b72d9d2479889f2e3a7ead8a136937008c7a6fe70063800b893d3f98bc8eaf7c5c01f6ddab771fbee19ffdb8b97d5fd4d4a4f7f2860afa7039c65d331ed3a6dc519931148215a6d7771b9f329bec3c5',
-    'db8ca2b43ed851cc93e71fd5fd72bff7': '2a501f1595b4730c02ec8ab8b8c9e9c6',
-    'TS011f2d1a': '01266d26d04a0b06ad7a4cbd6b860f4e646462d0a7fc2a4b75a9bac589edb217fab4d404686554ba5a6a30a2ee6f8904eb1cd3e858',
-    'TSPD_101': '0868f8be6fab280071c13e464bbbbc37d5a272fca2a799b13de61b474971ca194289279b38328a84ac23ae8c4e90adfc0877846ac50518005b77a1f221e61b9d5ca1732140a3428bba23ce13beb1c95e',
-    'XSRF-TOKEN': 'bdc673ba-83b9-49b6-a237-7779854b5c81',
-    'JSESSIONID': '96235E2AA1282B6F85B03FC7226A6A59',
-    'SESSION': 'db84eddd-627c-445e-87b9-aae9dd35a82a',
-    'TS5220f739077': '0868f8be6fab2800048ff5bbf4497145182fa23eee966072bc51ca0c577ce03e40cc761adc10e1296cf39b3bd369402408062a1677172000689635e3bd19fdee0bd26d96f36815638e5e40f55c79f7e88d19788317ac4975',
-    'TS5220f739029': '0868f8be6fab2800565d2423dba09806c8c68458204d5d9356f5825f04c7f9db7f8aa94581727aaac3114afb42cadfd1',
-    'TSf1edb2d2027': '0868f8be6fab200031af673654567c3d7da088801e08873c2ed0516c858136862a4704d3231025c80891f680bf11300015a83a8124ac1ec50e0e2d9f431e60a03ca74dfe95a594c6fdc1066691302cd77393af98e99a86f86772bb8beb76ba33',
-}
-
-headers = {
-    'accept': '*/*',
-    'accept-language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7,ms;q=0.6',
-    'content-type': 'application/json',
-    'origin': 'https://fasih-sm.bps.go.id',
-    'priority': 'u=1, i',
-    'referer': 'https://fasih-sm.bps.go.id/app/surveys/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24',
-    'sec-ch-ua': '"Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"',
-    'sec-ch-ua-mobile': '?1',
-    'sec-ch-ua-platform': '"Android"',
-    'sec-fetch-dest': 'empty',
-    'sec-fetch-mode': 'cors',
-    'sec-fetch-site': 'same-origin',
-    'user-agent': 'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Mobile Safari/537.36',
-    'x-xsrf-token': 'bdc673ba-83b9-49b6-a237-7779854b5c81',
-    'cookie': 'cf_clearance=HQwIeZ.AS7MaosOLHlONXmzkiqUal.b5qak.8P0X_Z0-1784535547-1.2.1.1-oPdlHNW4C0XrGVjAWY9djxZNUrmPrAVBwqz_o7cR73XAAT_UiwRfnQXD6n_EJQV.MNt8QCZ.nAba9BRJR.WCiuCCqpwUyKo0gV7yNsZ2re15VZlKnIwXsuiTQeIPDsqEsvVaOzF5YWtEAt2fVDu0qmpMNqdo8n__nu0dVZSniyYtXUppOglTQqYZ0nB8ZCZfNrYErNEsHrETnRrMRSxGylfEtdVEdRW7XkO7MfUZD2MhhF11b6XvSrm0YPGNPfNLlUuTtWlr72eJ0.LBhmgCM2QPO2EnlAGfS2YlDzEdJenVct0XJmsFQxac1IPEoklYR4tQUZzzPOC1ABiTVsDYNA; TS018af012=0167a1c8611f9bc7f94183445ced71dabcd223b3e7a2a292250bd81a273f628c85a18f42264b8fb5338c67d96e7ac7419e44f5edb566f6d0624851c6c471f29b935df9afbedf5add518187fdb88c0b5c425137ce90; f5avraaaaaaaaaaaaaaaa_session_=MHDFICIFPAJCEMEHECIPADBKFGOENAGMGICMOOEBEBBAAMBIPCONEIJCEAGKJOOHAKODPBGOHMNPFIBLFOLAEJAKDKJKFPOJNPNMNCNBDOBDLCMHHGMMPGOEGEOPDMKJ; TS00000000076=0868f8be6fab28000307bd280dcb47f67c736c0758a53e745a4dccccf5976c244b72d9d2479889f2e3a7ead8a136937008c7a6fe7009d000e91b480472cc5e3827c1394c1d6041192e343e9350cd4b1976a7b3ea48c0323ed808ff9c1cac72884660009d54d24b6d243818e6cb7a5f3ede339dc20cc3888ab80c20824576004fac5eefc9d49d088035b178b6dc56e0ca3d728f96d77ae1668179a6a148358c28e8eaff9d9e26db09ee2d08af6c675186f1f4f0d08b3376fffa9e245d5fde3596e68c11a4c4e5b62cdba2e0cc483b49c22a223e0e2d902226e2882b898de0b309fa130047c118c4491bc33489a0713ab52d4d649cdc05aab164ef0e0993c52cdb63869d3de0c07297; TSPD_101_DID=0868f8be6fab28000307bd280dcb47f67c736c0758a53e745a4dccccf5976c244b72d9d2479889f2e3a7ead8a136937008c7a6fe70063800b893d3f98bc8eaf7c5c01f6ddab771fbee19ffdb8b97d5fd4d4a4f7f2860afa7039c65d331ed3a6dc519931148215a6d7771b9f329bec3c5; db8ca2b43ed851cc93e71fd5fd72bff7=2a501f1595b4730c02ec8ab8b8c9e9c6; TS011f2d1a=01266d26d04a0b06ad7a4cbd6b860f4e646462d0a7fc2a4b75a9bac589edb217fab4d404686554ba5a6a30a2ee6f8904eb1cd3e858; TSPD_101=0868f8be6fab280071c13e464bbbbc37d5a272fca2a799b13de61b474971ca194289279b38328a84ac23ae8c4e90adfc0877846ac50518005b77a1f221e61b9d5ca1732140a3428bba23ce13beb1c95e; XSRF-TOKEN=bdc673ba-83b9-49b6-a237-7779854b5c81; JSESSIONID=96235E2AA1282B6F85B03FC7226A6A59; SESSION=db84eddd-627c-445e-87b9-aae9dd35a82a; TS5220f739077=0868f8be6fab2800048ff5bbf4497145182fa23eee966072bc51ca0c577ce03e40cc761adc10e1296cf39b3bd369402408062a1677172000689635e3bd19fdee0bd26d96f36815638e5e40f55c79f7e88d19788317ac4975; TS5220f739029=0868f8be6fab2800565d2423dba09806c8c68458204d5d9356f5825f04c7f9db7f8aa94581727aaac3114afb42cadfd1; TSf1edb2d2027=0868f8be6fab200031af673654567c3d7da088801e08873c2ed0516c858136862a4704d3231025c80891f680bf11300015a83a8124ac1ec50e0e2d9f431e60a03ca74dfe95a594c6fdc1066691302cd77393af98e99a86f86772bb8beb76ba33',
-}
-
-json_data = {
-    "surveyPeriodId": "fd68e454-ba45-4b85-8205-f3bf777ded24",
-    "surveyRoleId": "6d7d919a-45e5-4779-bb87-2905b49fd31a",
-    "size": 5,
-    "page": 0,
-    "search": "",
-    "target": "TARGET_ONLY",
-    "region": {
-        "region1Id": None,
-        "region2Id": None,
-        "region3Id": None,
-        "region4Id": None,
-        "region5Id": None,
-        "region6Id": None,
-        "region7Id": None,
-        "region8Id": None,
-        "region9Id": None,
-        "region10Id": None,
+# ===================== CONFIGURATIONS (2 TARGET SCRAPING) =====================
+SCRAPE_CONFIGS = [
+    {
+        "name": "Keluarga",
+        "sheet_name": "Keluarga",
+        "cookies": {
+            'f5avraaaaaaaaaaaaaaaa_session_': 'BHKPGAHHMKMBOINLLLPMLGHMDNFLPEOPMEKMBKLBHIIOLPKLLMPENMIGHPBOHGENNJBDGOFAIADFALBPEKJAAJKAHKDLDPNEALPIPFDGOJNEHDHKMOHEBNKOCDHNIDEK',
+            'cf_clearance': 'WsesLv2lPAa3euqtLmfu5Z3ioGZKZ2vVx9ARk17c8ec-1791422648-1.2.1.1-h_AsnFza4Odsn7IMnF98Q4Eh85jt70NEENBlzobntPAWKV_c8HfUp2m_VcOOy_msQ6akYkq18cIpTclJVuSdA16QaI7eNjcJ745sQrHHleogytBLlIetDFZZwnFhRKzrpCTa2DHVmIn49CwG2CczoMq1uCzZ4wrxtmbLB3iZYj0GKJoZVJkBUSbGfFokWdaHO2Rs_tNdrbZC8GR.8t5LEP146YtvTKZenl4nbJPq8bGQuUpkzqVjOIlyzWn1oiYRu8kABY.JQPacPbJrpGGv22GPo2GiSXEQQFNCvncDDn1U1HXweUGjf_.fT8sfpocKpSIVO3oWwVF_jbMcEBEG.GInfyp5SBZvV5R7J4lY20YuVeQVMgCwBRuUzMuKIpAJYZssp5IPnxaOwC4kjE9tzpPWjL33BfyF__w48HlYbg8',
+            '_ga_ER466FVWPF': 'GS2.1.s1791523792$o1$g0$t1791523807$j45$l0$h0',
+            '_ga': 'GA1.3.121889234.1791523793',
+            '_ga_XXTTVXWHDB': 'GS2.3.s1791526012$o2$g0$t1791526012$j60$l0$h0',
+            'db8ca2b43ed851cc93e71fd5fd72bff7': 'dbde1cb71be407ed7e6e7c32ea20c7f9',
+            'XSRF-TOKEN': '672a1080-41d8-4bfd-86a6-99bcab9bd2c0',
+            'SESSION': '65751f9c-6469-465d-a850-c902ef6dce1e',
+            'f5avraaaaaaaaaaaaaaaa_session_': 'KAIDCPMFEJEFJDECMNLBCHBHAHICDCMGJIDEKOHDCJIIBLLGFLLJPCNPGIKOAEHMEPHDGHGMJPFODFGMKNGAOMEBEJIHKBOFAPJAMIHDCPBPEHDNICDLHJFMKDJMLDBD',
+            'TS00000000076': '0868f8be6fab28001395d81992b92964934a13ed257e067eca6420432f67f7447bfb863cddfa73578c4ae15fdfd45ea908dca78c4209d0007679fdc96cb554a5fc406df84ee1215759242a9178a14e99a1c57ff4030174b1de3308062bea49122c6e026c71f494c017948c436ce161120c736eece1d7d366bd32409c017ed7eca8f5155137f1e46a66a5cc8ee1913a53427d99d455454c7daebf528ef63b7be51d82c8e1498865b99e17a7702043d647209d0d41e2d2c300b055f6911e103fac73b8034c9647e45081f596093b8b8aa4696ba65605093c68a18095a07354ecea1aeee6959c28e474374d082cd564bd3cf0a742f074c4beb93db530c65cda8890e182c36d96347973',
+            'TSPD_101_DID': '0868f8be6fab28001395d81992b92964934a13ed257e067eca6420432f67f7447bfb863cddfa73578c4ae15fdfd45ea908dca78c42063800f03d544fda00873125ee5928f4c1575f12d35fdc6f26cae2bcbc80a31ec2c426f6324897bf8d5ede432c9ce546c7ad32f3045a232a83154b',
+            'TSPD_101': '0868f8be6fab2800a255d085215043432431ef62b6561ddd5c87ad872156ec01064fe54b0910f1619ba764a8e8cc9e9208f94c8ae7051800c0f8c255225226ca5ca1732140a3428bba23ce13beb1c95e',
+            'TS011f2d1a': '01266d26d08981d49e2451faf4f83c0e1b4107e43c384bea9e3b35a7ec1b11f4ee70f505030e33e0cc06c3fb0df25a20116cb48b3f',
+            'TS5220f739077': '0868f8be6fab2800edac987d9ece0d67cfa82a4255e7f4fd72dd2b4e55535bd209a5fd7dcd4f746cc1fb1806b306e07a0839d82b5a172000f5171bf7587e75f1cd97bf84f94ad31b9c83c677231dbc4d08982b301beb6e9c',
+            'TS5220f739029': '0868f8be6fab2800c0fb4c42e40576b2c61f61487e1504867424746ac93e6b7d6cdce20d365bde5998d6d876134d9776',
+            'TSf1edb2d2027': '0868f8be6fab2000005a635acb8b3f75fcbe823e7f9ce37744b102909cc5a24e033425608cb4e74508b4715e39113000a0f97f46bba7df70115094f3fe9473a629ab02fe5b278f6f36aab61adcbd8bef296c1595ba3a79c616ef11503b75c2d0',
+        },
+        "headers": {
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9,id;q=0.8',
+            'Connection': 'keep-alive',
+            'Content-Type': 'application/json',
+            'Origin': 'https://fasih-sm.bps.go.id',
+            'Referer': 'https://fasih-sm.bps.go.id/app/surveys/3aaeb894-0fdd-429b-a083-53ddd979f413/e511c9a7-275d-4ce7-9776-8e65f6b4aedd',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 16; Pixel 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Mobile Safari/537.36',
+            'X-XSRF-TOKEN': '672a1080-41d8-4bfd-86a6-99bcab9bd2c0',
+            'sec-ch-ua': '"Google Chrome";v="155", "Chromium";v="155", "Not(A:Brand";v="24"',
+            'sec-ch-ua-mobile': '?1',
+            'sec-ch-ua-platform': '"Android"',
+            'Cookie': 'f5avraaaaaaaaaaaaaaaa_session_=BHKPGAHHMKMBOINLLLPMLGHMDNFLPEOPMEKMBKLBHIIOLPKLLMPENMIGHPBOHGENNJBDGOFAIADFALBPEKJAAJKAHKDLDPNEALPIPFDGOJNEHDHKMOHEBNKOCDHNIDEK; cf_clearance=WsesLv2lPAa3euqtLmfu5Z3ioGZKZ2vVx9ARk17c8ec-1791422648-1.2.1.1-h_AsnFza4Odsn7IMnF98Q4Eh85jt70NEENBlzobntPAWKV_c8HfUp2m_VcOOy_msQ6akYkq18cIpTclJVuSdA16QaI7eNjcJ745sQrHHleogytBLlIetDFZZwnFhRKzrpCTa2DHVmIn49CwG2CczoMq1uCzZ4wrxtmbLB3iZYj0GKJoZVJkBUSbGfFokWdaHO2Rs_tNdrbZC8GR.8t5LEP146YtvTKZenl4nbJPq8bGQuUpkzqVjOIlyzWn1oiYRu8kABY.JQPacPbJrpGGv22GPo2GiSXEQQFNCvncDDn1U1HXweUGjf_.fT8sfpocKpSIVO3oWwVF_jbMcEBEG.GInfyp5SBZvV5R7J4lY20YuVeQVMgCwBRuUzMuKIpAJYZssp5IPnxaOwC4kjE9tzpPWjL33BfyF__w48HlYbg8; _ga_ER466FVWPF=GS2.1.s1791523792$o1$g0$t1791523807$j45$l0$h0; _ga=GA1.3.121889234.1791523793; _ga_XXTTVXWHDB=GS2.3.s1791526012$o2$g0$t1791526012$j60$l0$h0; db8ca2b43ed851cc93e71fd5fd72bff7=dbde1cb71be407ed7e6e7c32ea20c7f9; XSRF-TOKEN=672a1080-41d8-4bfd-86a6-99bcab9bd2c0; SESSION=65751f9c-6469-465d-a850-c902ef6dce1e; f5avraaaaaaaaaaaaaaaa_session_=KAIDCPMFEJEFJDECMNLBCHBHAHICDCMGJIDEKOHDCJIIBLLGFLLJPCNPGIKOAEHMEPHDGHGMJPFODFGMKNGAOMEBEJIHKBOFAPJAMIHDCPBPEHDNICDLHJFMKDJMLDBD; TS00000000076=0868f8be6fab28001395d81992b92964934a13ed257e067eca6420432f67f7447bfb863cddfa73578c4ae15fdfd45ea908dca78c4209d0007679fdc96cb554a5fc406df84ee1215759242a9178a14e99a1c57ff4030174b1de3308062bea49122c6e026c71f494c017948c436ce161120c736eece1d7d366bd32409c017ed7eca8f5155137f1e46a66a5cc8ee1913a53427d99d455454c7daebf528ef63b7be51d82c8e1498865b99e17a7702043d647209d0d41e2d2c300b055f6911e103fac73b8034c9647e45081f596093b8b8aa4696ba65605093c68a18095a07354ecea1aeee6959c28e474374d082cd564bd3cf0a742f074c4beb93db530c65cda8890e182c36d96347973; TSPD_101_DID=0868f8be6fab28001395d81992b92964934a13ed257e067eca6420432f67f7447bfb863cddfa73578c4ae15fdfd45ea908dca78c42063800f03d544fda00873125ee5928f4c1575f12d35fdc6f26cae2bcbc80a31ec2c426f6324897bf8d5ede432c9ce546c7ad32f3045a232a83154b; TSPD_101=0868f8be6fab2800a255d085215043432431ef62b6561ddd5c87ad872156ec01064fe54b0910f1619ba764a8e8cc9e9208f94c8ae7051800c0f8c255225226ca5ca1732140a3428bba23ce13beb1c95e; TS011f2d1a=01266d26d08981d49e2451faf4f83c0e1b4107e43c384bea9e3b35a7ec1b11f4ee70f505030e33e0cc06c3fb0df25a20116cb48b3f; TS5220f739077=0868f8be6fab2800edac987d9ece0d67cfa82a4255e7f4fd72dd2b4e55535bd209a5fd7dcd4f746cc1fb1806b306e07a0839d82b5a172000f5171bf7587e75f1cd97bf84f94ad31b9c83c677231dbc4d08982b301beb6e9c; TS5220f739029=0868f8be6fab2800c0fb4c42e40576b2c61f61487e1504867424746ac93e6b7d6cdce20d365bde5998d6d876134d9776; TSf1edb2d2027=0868f8be6fab2000005a635acb8b3f75fcbe823e7f9ce37744b102909cc5a24e033425608cb4e74508b4715e39113000a0f97f46bba7df70115094f3fe9473a629ab02fe5b278f6f36aab61adcbd8bef296c1595ba3a79c616ef11503b75c2d0',
+        },
+        "json_data": {
+            'surveyPeriodId': 'e511c9a7-275d-4ce7-9776-8e65f6b4aedd',
+            'surveyRoleId': '4bd73bf5-a133-4c67-9f94-fed42d72c31f',
+            'size': 10,
+            'page': 0,
+            'search': '',
+            'target': 'TARGET_ONLY',
+            'region': {
+                'region1Id': None,
+                'region2Id': None,
+                'region3Id': None,
+                'region4Id': None,
+                'region5Id': None,
+                'region6Id': None,
+                'region7Id': None,
+                'region8Id': None,
+                'region9Id': None,
+                'region10Id': None,
+            },
+            'regionSummaryLevel': 6,
+        }
     },
-    "regionSummaryLevel": 6,
-}
+    {
+        "name": "Infrastruktur",
+        "sheet_name": "Infrastruktur",
+        "cookies": {
+            'f5avraaaaaaaaaaaaaaaa_session_': 'CLGHPLFDBOFILKLGMECDEINOIOKMGBNLFLFBFPPIJONDENDDCIADHHJOFFEINNEOCEBDKIAFMCMHLLOCCKBAMEGMAKBDIONAIMFMBLDOEOILKNCGOHGBMNHJBAMIMOPI',
+            'cf_clearance': 'WsesLv2lPAa3euqtLmfu5Z3ioGZKZ2vVx9ARk17c8ec-1791422648-1.2.1.1-h_AsnFza4Odsn7IMnF98Q4Eh85jt70NEENBlzobntPAWKV_c8HfUp2m_VcOOy_msQ6akYkq18cIpTclJVuSdA16QaI7eNjcJ745sQrHHleogytBLlIetDFZZwnFhRKzrpCTa2DHVmIn49CwG2CczoMq1uCzZ4wrxtmbLB3iZYj0GKJoZVJkBUSbGfFokWdaHO2Rs_tNdrbZC8GR.8t5LEP146YtvTKZenl4nbJPq8bGQuUpkzqVjOIlyzWn1oiYRu8kABY.JQPacPbJrpGGv22GPo2GiSXEQQFNCvncDDn1U1HXweUGjf_.fT8sfpocKpSIVO3oWwVF_jbMcEBEG.GInfyp5SBZvV5R7J4lY20YuVeQVMgCwBRuUzMuKIpAJYZssp5IPnxaOwC4kjE9tzpPWjL33BfyF__w48HlYbg8',
+            '_ga_ER466FVWPF': 'GS2.1.s1791523792$o1$g0$t1791523807$j45$l0$h0',
+            '_ga': 'GA1.3.121889234.1791523793',
+            '_ga_XXTTVXWHDB': 'GS2.3.s1791526012$o2$g0$t1791526012$j60$l0$h0',
+            'db8ca2b43ed851cc93e71fd5fd72bff7': 'dbde1cb71be407ed7e6e7c32ea20c7f9',
+            'XSRF-TOKEN': '672a1080-41d8-4bfd-86a6-99bcab9bd2c0',
+            'SESSION': '65751f9c-6469-465d-a850-c902ef6dce1e',
+            'f5avraaaaaaaaaaaaaaaa_session_': 'KAIDCPMFEJEFJDECMNLBCHBHAHICDCMGJIDEKOHDCJIIBLLGFLLJPCNPGIKOAEHMEPHDGHGMJPFODFGMKNGAOMEBEJIHKBOFAPJAMIHDCPBPEHDNICDLHJFMKDJMLDBD',
+            'TS011f2d1a': '01266d26d08981d49e2451faf4f83c0e1b4107e43c384bea9e3b35a7ec1b11f4ee70f505030e33e0cc06c3fb0df25a20116cb48b3f',
+            'TS5220f739078': '0868f8be6fab2000f72fd5de3aafc18643bc4840333f8a1bcbff9727f4a44ca61bc781ec33ea903a08c5b8c8da1870019dc13140922d0244f7eb7ef16c652dc4acca5b8a281cd74e81da272b401ccea4886fcfb7c9456deb1046b42926e8f340375b876e9d80dfca0282c24eb7caa249eb1442628deb2a6a618bb13c738bd29b34409b82a5428d8c93d310db1548d5491599b7598fc64026203fec8116292f048b06c3744f8ccf0952ea5a7f7f353cbac0da044453cddc6746bac14f3d687126478fec765b7ed6a933f68333ea6426f3d721914c350e78639ab8cbf8b9ba0c4d0e86b1e91f33bea91e72dfa8228534e4f17071f637cdedfd0b71b8637cec7fceb129ab9aa9e6f5f89e1f8e2e76ce135312f39f6da82da071282e7356a83fd8f6d750973d32f81e57563fb414ba399b88cc94cc79de2c20baf319233e300d7aee198bdbf47922a30e3481827788781f0c5cd49996d4a5dbe327c2d4b6feaa6936452bcdde831cbce46e2ec47f40be1a46e4dcd78bc1f034877ffbed8a6ba04ffeeb4583927aed11c23861debac3d3561b9e44604dc679f5e5183bd76b75fd8139',
+            'TS00000000076': '0868f8be6fab280036035ccdcd13c9ebc9032e9ec901b886f4b20bada11273278dccd61acd523567c6df6f9b0d721c71086a35677e09d000f3c246576cfc66f66852cee00ca9cb113597fdd79a6d14bda0d4f8180edd93322f20a1a058778790a9bd205a8e9f9b321cbe5238d493d6f193c5444a0e4f02012a7f624e41aaa5e7e9067fdf9dbce824bafdc66174df6c071ece73577219611ee0ebc0af258bc3cc985596591564fc4bb006e8ff090db75d5f9ce123363e9a991ae3dc7a6dd1baae73ae6c68c4f75b691ddcb42313bd8c430be0c87e7ff5c949c3a5d03321fd65fedbc6891ef10bc95c658ca7e0ef15c6d2a56d96fda21613e9aa433b2f1b9d09b00709993f1a71bbbe',
+            'TSPD_101_DID': '0868f8be6fab280036035ccdcd13c9ebc9032e9ec901b886f4b20bada11273278dccd61acd523567c6df6f9b0d721c71086a35677e063800b79ad577c5a3b320bbb84360d980df0859fe3bee34fc326e7d3ac7b405d390ccdf1650d24ba4ba8642d7340830269b4b7ec139a5f2e31f3d',
+            'TSPD_101': '0868f8be6fab28005c9fa1745e98d4ff1550ffe623e34eda0fba9ea7244a580a15b879f5f827ea0967fa749fd1322ef708625100f10518009ce05cbaa0f0e42f5ca1732140a3428bba23ce13beb1c95e',
+            'TS5220f739077': '0868f8be6fab28006d8cda76d8e254c385a22f78d2126114a7da11ec4c670cd1a554a90ae1af93670cf94dcdddc06230086cbd36d917200082e26bc7cee44c25ff73e76b368f4e9363de747c5ce4243b0077022a2f76aab1',
+            'TS5220f739029': '0868f8be6fab2800b4f6a8465a8608b81232925fb1384719f7041a489c8619dc0088e83dddaa88346d6bc2269824c843',
+            'TSf1edb2d2027': '0868f8be6fab2000e719bdf571944523156064c291b7fa795e3d044352844cd6cd23f54d4693d8f508518d1278113000aaa20ca1bbccf7f3b3a667d8aa03c572e61b68eb62c3a402640307d3e764ff5dc94294a199dfe60ab6e4fc3f3edb4288',
+        },
+        "headers": {
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9,id;q=0.8',
+            'Connection': 'keep-alive',
+            'Content-Type': 'application/json',
+            'Origin': 'https://fasih-sm.bps.go.id',
+            'Referer': 'https://fasih-sm.bps.go.id/app/surveys/edb5c502-7062-422e-bcb2-493418b6bee0/860befa8-a519-4571-b79d-4fd745d9f0a8',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 16; Pixel 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Mobile Safari/537.36',
+            'X-XSRF-TOKEN': '672a1080-41d8-4bfd-86a6-99bcab9bd2c0',
+            'sec-ch-ua': '"Google Chrome";v="155", "Chromium";v="155", "Not(A:Brand";v="24"',
+            'sec-ch-ua-mobile': '?1',
+            'sec-ch-ua-platform': '"Android"',
+            'Cookie': 'f5avraaaaaaaaaaaaaaaa_session_=CLGHPLFDBOFILKLGMECDEINOIOKMGBNLFLFBFPPIJONDENDDCIADHHJOFFEINNEOCEBDKIAFMCMHLLOCCKBAMEGMAKBDIONAIMFMBLDOEOILKNCGOHGBMNHJBAMIMOPI; cf_clearance=WsesLv2lPAa3euqtLmfu5Z3ioGZKZ2vVx9ARk17c8ec-1791422648-1.2.1.1-h_AsnFza4Odsn7IMnF98Q4Eh85jt70NEENBlzobntPAWKV_c8HfUp2m_VcOOy_msQ6akYkq18cIpTclJVuSdA16QaI7eNjcJ745sQrHHleogytBLlIetDFZZwnFhRKzrpCTa2DHVmIn49CwG2CczoMq1uCzZ4wrxtmbLB3iZYj0GKJoZVJkBUSbGfFokWdaHO2Rs_tNdrbZC8GR.8t5LEP146YtvTKZenl4nbJPq8bGQuUpkzqVjOIlyzWn1oiYRu8kABY.JQPacPbJrpGGv22GPo2GiSXEQQFNCvncDDn1U1HXweUGjf_.fT8sfpocKpSIVO3oWwVF_jbMcEBEG.GInfyp5SBZvV5R7J4lY20YuVeQVMgCwBRuUzMuKIpAJYZssp5IPnxaOwC4kjE9tzpPWjL33BfyF__w48HlYbg8; _ga_ER466FVWPF=GS2.1.s1791523792$o1$g0$t1791523807$j45$l0$h0; _ga=GA1.3.121889234.1791523793; _ga_XXTTVXWHDB=GS2.3.s1791526012$o2$g0$t1791526012$j60$l0$h0; db8ca2b43ed851cc93e71fd5fd72bff7=dbde1cb71be407ed7e6e7c32ea20c7f9; XSRF-TOKEN=672a1080-41d8-4bfd-86a6-99bcab9bd2c0; SESSION=65751f9c-6469-465d-a850-c902ef6dce1e; f5avraaaaaaaaaaaaaaaa_session_=KAIDCPMFEJEFJDECMNLBCHBHAHICDCMGJIDEKOHDCJIIBLLGFLLJPCNPGIKOAEHMEPHDGHGMJPFODFGMKNGAOMEBEJIHKBOFAPJAMIHDCPBPEHDNICDLHJFMKDJMLDBD; TS011f2d1a=01266d26d08981d49e2451faf4f83c0e1b4107e43c384bea9e3b35a7ec1b11f4ee70f505030e33e0cc06c3fb0df25a20116cb48b3f; TS5220f739078=0868f8be6fab2000f72fd5de3aafc18643bc4840333f8a1bcbff9727f4a44ca61bc781ec33ea903a08c5b8c8da1870019dc13140922d0244f7eb7ef16c652dc4acca5b8a281cd74e81da272b401ccea4886fcfb7c9456deb1046b42926e8f340375b876e9d80dfca0282c24eb7caa249eb1442628deb2a6a618bb13c738bd29b34409b82a5428d8c93d310db1548d5491599b7598fc64026203fec8116292f048b06c3744f8ccf0952ea5a7f7f353cbac0da044453cddc6746bac14f3d687126478fec765b7ed6a933f68333ea6426f3d721914c350e78639ab8cbf8b9ba0c4d0e86b1e91f33bea91e72dfa8228534e4f17071f637cdedfd0b71b8637cec7fceb129ab9aa9e6f5f89e1f8e2e76ce135312f39f6da82da071282e7356a83fd8f6d750973d32f81e57563fb414ba399b88cc94cc79de2c20baf319233e300d7aee198bdbf47922a30e3481827788781f0c5cd49996d4a5dbe327c2d4b6feaa6936452bcdde831cbce46e2ec47f40be1a46e4dcd78bc1f034877ffbed8a6ba04ffeeb4583927aed11c23861debac3d3561b9e44604dc679f5e5183bd76b75fd8139; TS00000000076=0868f8be6fab280036035ccdcd13c9ebc9032e9ec901b886f4b20bada11273278dccd61acd523567c6df6f9b0d721c71086a35677e09d000f3c246576cfc66f66852cee00ca9cb113597fdd79a6d14bda0d4f8180edd93322f20a1a058778790a9bd205a8e9f9b321cbe5238d493d6f193c5444a0e4f02012a7f624e41aaa5e7e9067fdf9dbce824bafdc66174df6c071ece73577219611ee0ebc0af258bc3cc985596591564fc4bb006e8ff090db75d5f9ce123363e9a991ae3dc7a6dd1baae73ae6c68c4f75b691ddcb42313bd8c430be0c87e7ff5c949c3a5d03321fd65fedbc6891ef10bc95c658ca7e0ef15c6d2a56d96fda21613e9aa433b2f1b9d09b00709993f1a71bbbe; TSPD_101_DID=0868f8be6fab280036035ccdcd13c9ebc9032e9ec901b886f4b20bada11273278dccd61acd523567c6df6f9b0d721c71086a35677e063800b79ad577c5a3b320bbb84360d980df0859fe3bee34fc326e7d3ac7b405d390ccdf1650d24ba4ba8642d7340830269b4b7ec139a5f2e31f3d; TSPD_101=0868f8be6fab28005c9fa1745e98d4ff1550ffe623e34eda0fba9ea7244a580a15b879f5f827ea0967fa749fd1322ef708625100f10518009ce05cbaa0f0e42f5ca1732140a3428bba23ce13beb1c95e; TS5220f739077=0868f8be6fab28006d8cda76d8e254c385a22f78d2126114a7da11ec4c670cd1a554a90ae1af93670cf94dcdddc06230086cbd36d917200082e26bc7cee44c25ff73e76b368f4e9363de747c5ce4243b0077022a2f76aab1; TS5220f739029=0868f8be6fab2800b4f6a8465a8608b81232925fb1384719f7041a489c8619dc0088e83dddaa88346d6bc2269824c843; TSf1edb2d2027=0868f8be6fab2000e719bdf571944523156064c291b7fa795e3d044352844cd6cd23f54d4693d8f508518d1278113000aaa20ca1bbccf7f3b3a667d8aa03c572e61b68eb62c3a402640307d3e764ff5dc94294a199dfe60ab6e4fc3f3edb4288',
+        },
+        "json_data": {
+            'surveyPeriodId': '860befa8-a519-4571-b79d-4fd745d9f0a8',
+            'surveyRoleId': '28a6c674-9781-48b7-92fb-c612393a7b88',
+            'size': 10,
+            'page': 0,
+            'search': '',
+            'target': 'TARGET_ONLY',
+            'region': {
+                'region1Id': None,
+                'region2Id': None,
+                'region3Id': None,
+                'region4Id': None,
+                'region5Id': None,
+                'region6Id': None,
+                'region7Id': None,
+                'region8Id': None,
+                'region9Id': None,
+                'region10Id': None,
+            },
+            'regionSummaryLevel': 4,
+        }
+    }
+]
 
 # ================================================================
 
 if not os.path.exists(base_path):
     os.makedirs(base_path)
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-backup_file = archive_filename(
-    timestamp
-)  # arsip histori, 1 file per kali scraping
 
 
-def save_and_merge(new_data):
-    """Menerima data hasil scraping, memperbarui & memperkaya datanya dengan master_data,
+def save_and_merge(new_data, sheet_name="Keluarga"):
+    """Menerima data hasil scraping, memperkaya dengan master_data (sesuai sheet),
 
-    lalu menyimpan snapshot ke LATEST_FILE dan merekamnya ke arsip histori.
+    lalu memperbarui sheet spesifik di dalam file MAIN_EXCEL_OUTPUT secara aman.
     """
     if not new_data:
         return
 
-    print("\n-------------------------------------------------------------")
-    print("🔄 Memproses dan menyelaraskan data hasil scraping...")
+    print(f"\n-------------------------------------------------------------")
+    print(f"🔄 Memproses dan menyelaraskan data scraping untuk sheet: {sheet_name}...")
 
     df_target = pd.DataFrame(new_data)
     df_target["scraped_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # Baca file master jika tersedia
+    # Baca file master jika tersedia berdasarkan sheet_name
     master_file_path = os.path.join(base_path, "master_data.xlsx")
     if os.path.exists(master_file_path):
-        df_master = pd.read_excel(master_file_path)
+        try:
+            df_master = pd.read_excel(master_file_path, sheet_name=sheet_name)
+        except Exception as e:
+            print(f"⚠️ Warning: Gagal membaca sheet '{sheet_name}' dari {master_file_path}: {e}")
+            df_master = None
 
-        columns_to_update = [
-            "nmkab",
-            "nmkec",
-            "nmdesa",
-            "nmsls",
-            "nmsubsls",
-            "pengawas",
-            "pencacah",
-            "nama_pcl",
-            "nama_pml",
-        ]
-
-        # 1. Antisipasi inkonsistensi tipe data pada regionCode
-        df_target["regionCode"] = (
-            df_target["regionCode"].astype(str).str.strip()
-        )
-        df_master["regionCode"] = (
-            df_master["regionCode"].astype(str).str.strip()
-        )
-
-        # 2. Filter kolom master data agar hanya mengambil regionCode dan kolom yang dibutuhkan
-        available_master_cols = [
-            col for col in columns_to_update if col in df_master.columns
-        ]
-        df_master_subset = df_master[
-            ["regionCode"] + available_master_cols
-        ].drop_duplicates(subset=["regionCode"])
-
-        # 3. Gabungkan data berdasarkan regionCode (Left Join)
-        df_merged = pd.merge(
-            df_target,
-            df_master_subset,
-            on="regionCode",
-            how="left",
-            suffixes=("", "_master"),
-        )
-
-        # 4. Pembaruan dan Penyelarasan 'pengawas' & 'nama_pml' serta Wilayah
-        strict_overwrite_cols = ["pengawas", "nama_pml"]
-
-        for col in available_master_cols:
-            master_col_name = f"{col}_master"
-
-            if master_col_name in df_merged.columns:
-                if col not in df_merged.columns:
-                    # Jika kolom belum ada di target, langsung pakai dari master
-                    df_merged[col] = df_merged[master_col_name]
-                else:
-                    if col in strict_overwrite_cols:
-                        # Gunakan master_data sebagai acuan utama
-                        df_merged[col] = df_merged[master_col_name].fillna(
-                            df_merged[col]
-                        )
-                    else:
-                        # Untuk kolom wilayah/lainnya, cukup lengkapi jika kosong (fillna)
-                        df_merged[col] = df_merged[col].fillna(
-                            df_merged[master_col_name]
-                        )
-
-                # Hapus kolom bantuan '_master'
-                df_merged.drop(columns=[master_col_name], inplace=True)
-
-        # 5. Penyelarasan Kolom Username, Pencacah, dan Nama PCL
-        if "username" in df_merged.columns and "pencacah" in df_merged.columns:
-            mask_mismatch = (
-                df_merged["username"].astype(str).str.strip()
-                != df_merged["pencacah"].astype(str).str.strip()
-            )
-            df_merged.loc[mask_mismatch, "pencacah"] = df_merged.loc[
-                mask_mismatch, "username"
+        if df_master is not None:
+            columns_to_update = [
+                "nmkab", "nmkec", "nmdesa", "nmsls", "nmsubsls",
+                "pengawas", "pencacah", "nama_pcl", "nama_pml",
             ]
 
-        if "pencacah" in df_master.columns and "nama_pcl" in df_master.columns:
-            df_master_clean = df_master.dropna(
-                subset=["pencacah", "nama_pcl"]
-            ).drop_duplicates(subset=["pencacah"])
-            pcl_map = dict(
-                zip(
-                    df_master_clean["pencacah"].astype(str).str.strip(),
-                    df_master_clean["nama_pcl"],
-                )
+            df_target["regionCode"] = df_target["regionCode"].astype(str).str.strip()
+            df_master["regionCode"] = df_master["regionCode"].astype(str).str.strip()
+
+            available_master_cols = [col for col in columns_to_update if col in df_master.columns]
+            df_master_subset = df_master[["regionCode"] + available_master_cols].drop_duplicates(subset=["regionCode"])
+
+            df_merged = pd.merge(
+                df_target,
+                df_master_subset,
+                on="regionCode",
+                how="left",
+                suffixes=("", "_master"),
             )
 
-            if "pencacah" in df_merged.columns:
-                existing_nama_pcl = df_merged.get(
-                    "nama_pcl", pd.Series([None] * len(df_merged))
+            strict_overwrite_cols = ["pengawas", "nama_pml"]
+
+            for col in available_master_cols:
+                master_col_name = f"{col}_master"
+
+                if master_col_name in df_merged.columns:
+                    if col not in df_merged.columns:
+                        df_merged[col] = df_merged[master_col_name]
+                    else:
+                        if col in strict_overwrite_cols:
+                            df_merged[col] = df_merged[master_col_name].fillna(df_merged[col])
+                        else:
+                            df_merged[col] = df_merged[col].fillna(df_merged[master_col_name])
+
+                    df_merged.drop(columns=[master_col_name], inplace=True)
+
+            if "username" in df_merged.columns and "pencacah" in df_merged.columns:
+                mask_mismatch = (
+                    df_merged["username"].astype(str).str.strip()
+                    != df_merged["pencacah"].astype(str).str.strip()
                 )
-                df_merged["nama_pcl"] = (
-                    df_merged["pencacah"]
-                    .astype(str)
-                    .str.strip()
-                    .map(pcl_map)
-                    .fillna(existing_nama_pcl)
+                df_merged.loc[mask_mismatch, "pencacah"] = df_merged.loc[mask_mismatch, "username"]
+
+            if "pencacah" in df_master.columns and "nama_pcl" in df_master.columns:
+                df_master_clean = df_master.dropna(subset=["pencacah", "nama_pcl"]).drop_duplicates(subset=["pencacah"])
+                pcl_map = dict(
+                    zip(
+                        df_master_clean["pencacah"].astype(str).str.strip(),
+                        df_master_clean["nama_pcl"],
+                    )
                 )
 
-        df_final = df_merged
+                if "pencacah" in df_merged.columns:
+                    existing_nama_pcl = df_merged.get("nama_pcl", pd.Series([None] * len(df_merged)))
+                    df_merged["nama_pcl"] = (
+                        df_merged["pencacah"]
+                        .astype(str)
+                        .str.strip()
+                        .map(pcl_map)
+                        .fillna(existing_nama_pcl)
+                    )
+
+            df_final = df_merged
+        else:
+            df_final = df_target
     else:
-        print(
-            f"⚠️ Warning: File '{master_file_path}' tidak ditemukan."
-            " Menggunakan data tanpa enrichment master."
-        )
+        print(f"⚠️ Warning: File '{master_file_path}' tidak ditemukan. Menggunakan data tanpa enrichment master.")
         df_final = df_target
 
-    # 6. Konversi Kolom Hasil Rekapitulasi Menjadi Format Number
+    # Konversi Kolom Numerik
     numeric_cols = [
-        "total_data",
-        "APPROVED BY Pengawas",
-        "SUBMITTED BY Pencacah",
-        "OPEN",
-        "REJECTED BY Pengawas",
-        "DRAFT",
-        "EDITED BY Pengawas",
-        "REVOKED BY Pengawas",
+        "total_data", "APPROVED BY Pengawas", "SUBMITTED BY Pencacah", "OPEN",
+        "REJECTED BY Pengawas", "DRAFT", "EDITED BY Pengawas", "REVOKED BY Pengawas",
         "SUBMITTED RESPONDENT",
     ]
 
@@ -226,36 +256,45 @@ def save_and_merge(new_data):
         if col in df_final.columns:
             df_final[col] = pd.to_numeric(df_final[col], errors="coerce")
 
-    # 7. Simpan Arsip histori (append)
-    if os.path.exists(backup_file):
-        try:
-            df_old = pd.read_excel(backup_file)
-            df_archive = pd.concat([df_old, df_final], ignore_index=True)
-        except Exception:
-            df_archive = df_final
-    else:
-        df_archive = df_final
+    # Simpan Arsip histori terpisah (per scraping)
+    safe_sheet_name = sheet_name.lower().replace(" ", "_")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_file = archive_filename(f"{safe_sheet_name}_{timestamp}")
+    df_final.to_excel(backup_file, index=False)
 
-    df_archive.to_excel(backup_file, index=False)
-
-    # 8. Simpan File LATEST dengan aman (Atomic Write)
-    _atomic_write_excel(df_final, LATEST_FILE)
-    print(f"💾 Snapshot terbaru dan terolah berhasil disimpan ke: {LATEST_FILE}")
+    # **Simpan & Gabungkan ke File Utama Multi-Sheet secara Atomic**
+    _atomic_write_multi_sheet(df_final, sheet_name, MAIN_EXCEL_OUTPUT)
+    print(f"💾 Data berhasil diperbarui ke sheet '{sheet_name}' di dalam file: {MAIN_EXCEL_OUTPUT}")
     print("-------------------------------------------------------------\n")
 
 
-def _atomic_write_excel(df, path):
-    """Tulis Excel dengan aman: tulis ke file sementara dulu, baru rename.
+def _atomic_write_multi_sheet(df_new, sheet_name, path):
+    """Menulis atau memperbarui sheet tertentu di dalam file Excel yang sama
 
-    Mencegah dashboard membaca file yang setengah jadi/korup saat scraping
-    sedang menulis.
+    tanpa merusak/menghapus sheet lainnya (misal: sheet Keluarga tetap aman saat sheet Infrastruktur ditulis).
     """
     folder = os.path.dirname(path) or "."
+    
+    # Baca seluruh sheet yang sudah ada jika file utama sudah ada
+    existing_sheets = {}
+    if os.path.exists(path):
+        try:
+            existing_sheets = pd.read_excel(path, sheet_name=None)
+        except Exception:
+            pass
+
+    # Perbarui atau tambahkan sheet yang sedang diproses
+    existing_sheets[sheet_name] = df_new
+
+    # Tulis ke file sementara terlebih dahulu (Atomic Write)
     fd, tmp_path = tempfile.mkstemp(suffix=".xlsx", dir=folder)
     os.close(fd)
+    
     try:
-        df.to_excel(tmp_path, index=False)
-        os.replace(tmp_path, path)  # atomic di OS yang sama (Windows/Linux)
+        with pd.ExcelWriter(tmp_path, engine="openpyxl") as writer:
+            for s_name, s_df in existing_sheets.items():
+                s_df.to_excel(writer, sheet_name=s_name, index=False)
+        os.replace(tmp_path, path)
     except Exception:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -266,10 +305,7 @@ def auto_push_github():
     import subprocess
 
     try:
-        # 1. Add semua perubahan di folder data/
         subprocess.run(["git", "add", "data/"], check=True)
-
-        # 2. Cek apakah ada perubahan
         status = subprocess.run(
             ["git", "status", "--porcelain"], capture_output=True, text=True
         )
@@ -278,18 +314,8 @@ def auto_push_github():
             print("📌 Tidak ada perubahan untuk dipush ke GitHub.")
             return
 
-        # 3. Commit dengan pesan "update" saja
-        subprocess.run(
-            ["git", "commit", "-m", "update"],  # <-- Diubah di sini
-            check=True,
-        )
-
-        # 4. Sinkronisasi (pull) terlebih dahulu
-        subprocess.run(
-            ["git", "pull", "--rebase", "origin", "main"], check=True
-        )
-
-        # 5. Push ke GitHub
+        subprocess.run(["git", "commit", "-m", "update"], check=True)
+        subprocess.run(["git", "pull", "--rebase", "origin", "main"], check=True)
         subprocess.run(["git", "push", "origin", "main"], check=True)
 
         print("✅ Data berhasil dipush ke GitHub dengan pesan commit 'update'")
@@ -298,24 +324,32 @@ def auto_push_github():
         print(f"❌ Error push GitHub: {e}")
 
 
-def fetch_data():
+def fetch_data(config):
+    target_name = config.get("name")
+    sheet_name = config.get("sheet_name")
+    cookies = config.get("cookies")
+    headers = config.get("headers")
+    json_payload = config.get("json_data").copy()
+
+    print(f"\n🚀 Memulai scraping untuk Target: [{target_name}]")
+
     all_rows = []
     page = 0
     size = 10
 
     while True:
-        json_data["page"] = page
-        json_data["size"] = size
+        json_payload["page"] = page
+        json_payload["size"] = size
 
         response = requests.post(
             URL_DATA,
             cookies=cookies,
             headers=headers,
-            json=json_data,
+            json=json_payload,
         )
 
         if response.status_code != 200:
-            print(f"❌ Error di page {page}")
+            print(f"❌ Error [{target_name}] di page {page}")
             print(f"Status Code: {response.status_code}")
             print(response.text[:1000])
             break
@@ -325,9 +359,8 @@ def fetch_data():
         data = data_block.get("content", [])
         is_last = data_block.get("last", True)
 
-        print(f"📄 Page {page} | jumlah data: {len(data)} | last: {is_last}")
+        print(f"📄 [{target_name}] Page {page} | jumlah data: {len(data)} | last: {is_last}")
 
-        # 🔽 Flattening Data JSON
         for user in data:
             for region in user.get("regionSummary", []):
                 row = {
@@ -345,24 +378,28 @@ def fetch_data():
                 all_rows.append(row)
 
         if is_last:
-            print("✅ Sudah sampai halaman terakhir")
+            print(f"✅ [{target_name}] Sudah sampai halaman terakhir")
             break
 
         page += 1
-        time.sleep(random.uniform(1, 3))  # delay acak 1-3 detik antar request
+        time.sleep(random.uniform(1, 3))
 
     if all_rows:
-        save_and_merge(all_rows)
+        save_and_merge(all_rows, sheet_name=sheet_name)
 
-    print("🎉 Semua data berhasil diproses dan disimpan!")
+    print(f"🎉 Scraping [{target_name}] selesai!")
 
 
 def job():
     print(
-        f"\n[+] Memulai proses scraping pada"
+        f"\n[+] Memulai proses scraping berkala pada"
         f" {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     )
-    fetch_data()
+    
+    for config in SCRAPE_CONFIGS:
+        fetch_data(config)
+        time.sleep(2)
+        
     auto_push_github()
 
 
@@ -370,14 +407,11 @@ if __name__ == "__main__":
     schedule.every(4).hours.do(job)
 
     print(
-        "⏱️  Script berjalan otomatis setiap 4 jam. Tekan Ctrl+C untuk"
-        " menghentikan."
+        "⏱️  Script berjalan otomatis setiap 4 jam. Tekan Ctrl+C untuk menghentikan."
     )
 
-    # Jalankan fungsi satu kali saat script pertama kali dibuka
     job()
 
-    # Loop agar script terus berjalan mengecek jadwal
     while True:
         schedule.run_pending()
         time.sleep(1)

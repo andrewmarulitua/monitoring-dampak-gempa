@@ -14,7 +14,7 @@ from config_se2026 import LATEST_FILE
 # Konfigurasi Halaman
 # ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Monitoring SE2026",
+    page_title="Monitoring Dampak Gempa",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -251,7 +251,6 @@ def nice_col(c: str) -> str:
 DONE_KEYWORDS     = ["APPROVED", "SUBMITTED"]
 NOT_DONE_KEYWORDS = ["OPEN", "DRAFT"]
 
-# Tema Grafik Tetap Menggunakan Variasi Warna Visual yang Jelas (Mode Terang)
 PLOT_TEMPLATE = "plotly_white"
 PLOT_BG       = "rgba(0,0,0,0)"
 PAPER_BG      = "rgba(0,0,0,0)"
@@ -273,14 +272,19 @@ def styled_chart_layout(**kwargs):
 # Helper functions
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(show_spinner=False)
-def load_data(path_or_file, cache_key=None) -> pd.DataFrame:
+def load_all_sheets(path_or_file, cache_key=None) -> dict:
     name = getattr(path_or_file, "name", str(path_or_file))
     if str(name).lower().endswith(".csv"):
         df = pd.read_csv(path_or_file)
+        df.columns = [str(c).strip() for c in df.columns]
+        return {"Data Utama": df}
     else:
-        df = pd.read_excel(path_or_file)
-    df.columns = [str(c).strip() for c in df.columns]
-    return df
+        dfs = pd.read_excel(path_or_file, sheet_name=None)
+        cleaned_dfs = {}
+        for sheet_name, df in dfs.items():
+            df.columns = [str(c).strip() for c in df.columns]
+            cleaned_dfs[sheet_name] = df
+        return cleaned_dfs
 
 def detect_status_cols(df: pd.DataFrame) -> list:
     return [c for c in df.columns if c not in IDENTITY_COLS]
@@ -312,7 +316,7 @@ if not os.path.exists(LATEST_FILE):
     st.stop()
 
 file_mtime   = os.path.getmtime(LATEST_FILE)
-df_raw       = load_data(LATEST_FILE, cache_key=file_mtime)
+sheets_dict  = load_all_sheets(LATEST_FILE, cache_key=file_mtime)
 last_updated = datetime.fromtimestamp(
     file_mtime, tz=ZoneInfo("Asia/Makassar")
 ).strftime("%d %b %Y · %H:%M WITA")
@@ -323,7 +327,7 @@ last_updated = datetime.fromtimestamp(
 st.markdown(f"""
 <div class="header-container">
     <div>
-        <h1 class="header-title">Monitoring SE2026 Kabupaten Ende</h1>
+        <h1 class="header-title">Monitoring Dampak Gempa Kabupaten Ende</h1>
         <p class="header-subtitle">Progress Pencacahan & Pengawasan · Data Otomatis FASIH</p>
     </div>
     <div class="header-badge">Diperbarui: {last_updated}</div>
@@ -331,695 +335,706 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Deteksi kolom status
+# Urutan Sheet Utama ("Keluarga" & "Infrastruktur")
 # ─────────────────────────────────────────────────────────────────────────────
-status_cols  = detect_status_cols(df_raw)
-numeric_cols = status_cols + (["total_data"] if "total_data" in df_raw.columns else [])
-df_raw       = to_numeric_safe(df_raw, numeric_cols)
+available_sheets = list(sheets_dict.keys())
+preferred_order = ["Keluarga", "Infrastruktur"]
+sorted_sheets = [s for s in preferred_order if s in available_sheets] + [s for s in available_sheets if s not in preferred_order]
 
-if not status_cols:
-    st.error("Tidak ada kolom status terdeteksi dalam file data.")
+if not sorted_sheets:
+    st.error("Tidak ada sheet data yang ditemukan.")
     st.stop()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Filter Bar (Tanpa Sidebar)
+# TAB UTAMA (Level 1): Memisahkan "Keluarga" dan "Infrastruktur"
 # ─────────────────────────────────────────────────────────────────────────────
-f1, f2 = st.columns([1, 1])
+main_sheet_tabs = st.tabs([f"{sheet}" for sheet in sorted_sheets])
 
-# 1. Filter Kecamatan
-with f1:
-    if "nmkec" in df_raw.columns:
-        all_kec = sorted(df_raw["nmkec"].dropna().unique().tolist())
-        sel_kec = st.multiselect(
-            "Filter Kecamatan", all_kec,
-            default=[], placeholder="Pilih kecamatan...",
-        )
-    else:
-        sel_kec = []
+for idx, selected_sheet in enumerate(sorted_sheets):
+    with main_sheet_tabs[idx]:
+        df_raw = sheets_dict[selected_sheet]
 
-# Filter sementara berdasarkan kecamatan untuk memperbarui opsi pencacah
-df_kec = df_raw.copy()
-if sel_kec and "nmkec" in df_kec.columns:
-    df_kec = df_kec[df_kec["nmkec"].isin(sel_kec)]
+        # Deteksi Kolom Status
+        status_cols  = detect_status_cols(df_raw)
+        numeric_cols = status_cols + (["total_data"] if "total_data" in df_raw.columns else [])
+        df_raw       = to_numeric_safe(df_raw, numeric_cols)
 
-# 2. Filter Pencacah (Opsi bertingkat berdasarkan Kecamatan yang dipilih)
-with f2:
-    if "nama_pcl" in df_kec.columns:
-        # Mengambil pencacah HANYA dari kecamatan yang telah difilter
-        all_pcl = sorted(df_kec["nama_pcl"].dropna().unique().tolist())
-        sel_pcl = st.multiselect(
-            "Filter Pencacah", all_pcl,
-            default=[], placeholder="Cari nama pencacah...",
-        )
-    else:
-        sel_pcl = []
+        if not status_cols:
+            st.error(f"Tidak ada kolom status terdeteksi dalam sheet '{selected_sheet}'.")
+            continue
 
-# Terapkan filter pencacah ke DataFrame utama
-df = df_kec.copy()
-if sel_pcl and "nama_pcl" in df.columns:
-    df = df[df["nama_pcl"].isin(sel_pcl)]
+        # ─────────────────────────────────────────────────────────────────────
+        # Filter Bar (Kecamatan & Pencacah)
+        # ─────────────────────────────────────────────────────────────────────
+        f1, f2 = st.columns([1, 1])
 
-if len(df) < len(df_raw):
-    st.caption(f"Filter Aktif: Menampilkan {len(df):,} dari {len(df_raw):,} baris data.")
+        with f1:
+            if "nmkec" in df_raw.columns:
+                all_kec = sorted(df_raw["nmkec"].dropna().unique().tolist())
+                sel_kec = st.multiselect(
+                    f"Filter Kecamatan ({selected_sheet})", all_kec,
+                    default=[], placeholder="Pilih kecamatan...", key=f"kec_{selected_sheet}"
+                )
+            else:
+                sel_kec = []
 
-# ─────────────────────────────────────────────────────────────────────────────
-# KPI Cards
-# ─────────────────────────────────────────────────────────────────────────────
-n_pcl      = df["nama_pcl"].nunique() if "nama_pcl" in df.columns else 0
-n_pml      = df["nama_pml"].nunique() if "nama_pml" in df.columns else 0
-if "nmkec" in df.columns and "nmdesa" in df.columns:
-    n_desa = df[["nmkec", "nmdesa"]].drop_duplicates().shape[0]
-elif "nmdesa" in df.columns:
-    n_desa = df["nmdesa"].nunique()
-else:
-    n_desa = 0
-total_data = int(df["total_data"].sum()) if "total_data" in df.columns else int(df[status_cols].sum().sum())
+        df_kec = df_raw.copy()
+        if sel_kec and "nmkec" in df_kec.columns:
+            df_kec = df_kec[df_kec["nmkec"].isin(sel_kec)]
 
-done_cols     = [c for c in status_cols if any(k in c.upper() for k in DONE_KEYWORDS)]
-draft_cols    = [c for c in status_cols if "DRAFT" in c.upper()]
-rejected_cols = [c for c in status_cols if any(k in c.upper() for k in ["REJECT", "DITOLAK"])]
+        with f2:
+            if "nama_pcl" in df_kec.columns:
+                all_pcl = sorted(df_kec["nama_pcl"].dropna().unique().tolist())
+                sel_pcl = st.multiselect(
+                    f"Filter Pencacah ({selected_sheet})", all_pcl,
+                    default=[], placeholder="Cari nama pencacah...", key=f"pcl_{selected_sheet}"
+                )
+            else:
+                sel_pcl = []
 
-total_draft    = int(df[draft_cols].sum().sum())    if draft_cols    else 0
-total_done     = int(df[done_cols].sum().sum())     if done_cols     else 0
-total_rejected = int(df[rejected_cols].sum().sum()) if rejected_cols else 0
+        df = df_kec.copy()
+        if sel_pcl and "nama_pcl" in df.columns:
+            df = df[df["nama_pcl"].isin(sel_pcl)]
 
-progress_without_draft_cols = [
-    c for c in status_cols
-    if not any(k in c.upper() for k in ["DRAFT", "OPEN"])
-]
-progress_with_draft_cols = [
-    c for c in status_cols
-    if not any(k in c.upper() for k in ["OPEN"])
-]
+        if len(df) < len(df_raw):
+            st.caption(f"Filter Aktif: Menampilkan {len(df):,} dari {len(df_raw):,} baris data pada sheet **{selected_sheet}**.")
 
-total_progress_without_draft = int(df[progress_without_draft_cols].sum().sum()) if progress_without_draft_cols else 0
-total_progress_with_draft    = int(df[progress_with_draft_cols].sum().sum())    if progress_with_draft_cols else 0
-
-pct_progress_without_draft = (total_progress_without_draft / total_data * 100) if total_data else 0
-pct_progress_with_draft    = (total_progress_with_draft / total_data * 100)    if total_data else 0
-
-k1, k2, k3, k4, k5, k6, k7 = st.columns(7)
-k1.metric("Pencacah", f"{n_pcl:,}")
-k2.metric("Pengawas", f"{n_pml:,}")
-k3.metric("Desa", f"{n_desa:,}")
-k4.metric("Total Muatan", f"{total_data:,}")
-k5.metric("Draft", f"{total_draft:,}")
-k6.metric("Selesai", f"{total_done:,}")
-k7.metric("Ditolak", f"{total_rejected:,}")
-
-st.divider()
-
-# ─────────────────────────────────────────────────────────────────────────────
-# TABS (Menggunakan Tampilan Tab Bertema Tanpa Ikon)
-# ─────────────────────────────────────────────────────────────────────────────
-tab_overview, tab_pcl, tab_pml, tab_target, tab_desa, tab_raw = st.tabs([
-    "Distribusi Status",
-    "Kinerja Pencacah",
-    "Kinerja Pengawas",
-    "Target & Proyeksi",
-    "Rekap Wilayah",
-    "Data Mentah",
-])
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 1 — Distribusi Status
-# ══════════════════════════════════════════════════════════════════════════════
-with tab_overview:
-    st.subheader("Distribusi Status Keseluruhan")
-
-    status_totals_all = df[status_cols].sum().sort_values(ascending=False)
-    status_totals_all = status_totals_all[status_totals_all > 0]
-
-    status_cols_without_draft = [c for c in status_cols if c not in draft_cols]
-    status_totals_without_draft = df[status_cols_without_draft].sum().sort_values(ascending=False) if status_cols_without_draft else pd.Series(dtype=float)
-    status_totals_without_draft = status_totals_without_draft[status_totals_without_draft > 0]
-
-    def render_status_distribution(status_totals_view, pct_value, title_gauge, total_progress_value, key_prefix="default"):
-        if status_totals_view.empty:
-            st.info("Belum ada data status bernilai lebih dari 0.")
-            return
-
-        c_bar, c_pie, c_gauge = st.columns([3, 2, 2])
-
-        with c_bar:
-            fig_bar = px.bar(
-                x=status_totals_view.values,
-                y=status_totals_view.index,
-                orientation="h",
-                labels={"x": "Jumlah Usaha", "y": ""},
-                text=[f"{int(v):,}" for v in status_totals_view.values],
-                color=status_totals_view.index,
-                color_discrete_sequence=CHART_PALETTE,
-                template=PLOT_TEMPLATE,
-            )
-            fig_bar.update_traces(textposition="outside", textfont_size=11)
-            fig_bar.update_layout(
-                **styled_chart_layout(showlegend=False, height=360),
-                xaxis=dict(showgrid=True, gridcolor="#EFE9E0"),
-                yaxis=dict(showgrid=False),
-            )
-            st.plotly_chart(fig_bar, use_container_width=True, key=f"bar_{key_prefix}")
-
-        with c_pie:
-            fig_pie = px.pie(
-                values=status_totals_view.values,
-                names=status_totals_view.index,
-                hole=0.5,
-                color_discrete_sequence=CHART_PALETTE,
-                template=PLOT_TEMPLATE,
-            )
-            fig_pie.update_traces(
-                textinfo="percent",
-                textfont_size=11,
-                hovertemplate="<b>%{label}</b><br>%{value:,} usaha<br>%{percent}<extra></extra>",
-            )
-            fig_pie.update_layout(**styled_chart_layout(
-                height=360, showlegend=True,
-                legend=dict(orientation="v", x=1.0),
-            ))
-            st.plotly_chart(fig_pie, use_container_width=True, key=f"pie_{key_prefix}")
-
-        with c_gauge:
-            st.metric("Jumlah Progress Ditangani", f"{total_progress_value:,}")
-
-            fig_gauge = go.Figure(go.Indicator(
-                mode="gauge+number",
-                value=pct_value,
-                number={"suffix": "%", "valueformat": ".2f", "font": {"size": 34, "color": "#2D3748", "family": "JetBrains Mono"}},
-                title={"text": title_gauge, "font": {"color": "#8C7355", "size": 13, "family": "Plus Jakarta Sans"}},
-                gauge={
-                    "axis": {"range": [0, 100], "tickcolor": "#CBD5E1", "tickfont": {"color": "#64748B", "size": 10}},
-                    "bar": {"color": "#ECB65F", "thickness": 0.28},
-                    "bgcolor": "rgba(0,0,0,0)",
-                    "bordercolor": "#EFE9E0",
-                    "steps": [
-                        {"range": [0, 50], "color": "#FFF8EE"},
-                        {"range": [50, 80], "color": "#FDF0D5"},
-                        {"range": [80, 100], "color": "#FCE3B4"},
-                    ],
-                    "threshold": {"line": {"color": "#D8983B", "width": 3}, "thickness": 0.8, "value": pct_value},
-                },
-            ))
-            fig_gauge.update_layout(**styled_chart_layout(height=300))
-            st.plotly_chart(fig_gauge, use_container_width=True, key=f"gauge_{key_prefix}")
-
-    sub_tab1, sub_tab2 = st.tabs(["Tanpa Draft", "Termasuk Draft"])
-
-    with sub_tab1:
-        render_status_distribution(
-            status_totals_without_draft,
-            pct_progress_without_draft,
-            "Progress Tanpa Draft",
-            total_progress_without_draft,
-            key_prefix="no_draft",
-        )
-
-    with sub_tab2:
-        render_status_distribution(
-            status_totals_all,
-            pct_progress_with_draft,
-            "Progress Termasuk Draft",
-            total_progress_with_draft,
-            key_prefix="with_draft",
-        )
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 2 — Per Pencacah (PCL)
-# ══════════════════════════════════════════════════════════════════════════════
-with tab_pcl:
-    st.subheader("Monitoring Per Pencacah (PCL)")
-
-    if "nama_pcl" not in df.columns:
-        st.warning("Kolom nama_pcl tidak ditemukan dalam dataset.")
-    else:
-        agg_cols = status_cols + (["total_data"] if "total_data" in df.columns else [])
-        agg_pcl  = df.groupby("nama_pcl")[agg_cols].sum().reset_index()
-
-        # --- Perhitungan Progress Eksklusif Tanpa Draft ---
-        if "total_data" in agg_pcl.columns and progress_without_draft_cols:
-            agg_pcl["Progress (%)"] = (
-                agg_pcl[progress_without_draft_cols].sum(axis=1)
-                / agg_pcl["total_data"].replace(0, pd.NA) * 100
-            ).round(1).fillna(0)
-
-        if "total_data" in agg_pcl.columns:
-            agg_pcl = agg_pcl.sort_values("total_data", ascending=False)
-
-        max_show  = 30
-        chart_pcl = agg_pcl.head(max_show)
-        if len(agg_pcl) > max_show:
-            st.caption(f"Menampilkan {max_show} pencacah terbesar dari total {len(agg_pcl)} pencacah.")
-
-        fig_pcl = go.Figure()
-        for i, c in enumerate(status_cols):
-            if c in chart_pcl.columns:
-                fig_pcl.add_trace(go.Bar(
-                    name=c,
-                    x=chart_pcl["nama_pcl"],
-                    y=chart_pcl[c],
-                    marker_color=CHART_PALETTE[i % len(CHART_PALETTE)],
-                    hovertemplate="<b>%{x}</b><br>" + c + ": %{y:,}<extra></extra>",
-                ))
-        fig_pcl.update_layout(
-            barmode="stack",
-            **styled_chart_layout(height=420),
-            xaxis=dict(tickangle=-40, showgrid=False, tickfont_size=10, title="Nama Pencacah"),
-            yaxis=dict(showgrid=True, gridcolor="#EFE9E0", title="Jumlah Usaha"),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font_size=11),
-        )
-        st.plotly_chart(fig_pcl, use_container_width=True)
-
-        st.markdown("#### Detail Tabel Pencacah")
-
-        if "total_data" in agg_pcl.columns:
-            agg_pcl["_sum"]    = agg_pcl[status_cols].sum(axis=1)
-            agg_pcl["Selisih"] = agg_pcl["total_data"] - agg_pcl["_sum"]
-            agg_pcl = agg_pcl.drop(columns=["_sum"])
-
-        if "nama_pml" in df.columns:
-            pml_map = df.groupby("nama_pcl")["nama_pml"].first().reset_index()
-            agg_pcl = agg_pcl.merge(pml_map, on="nama_pcl", how="left")
-            col_order = ["nama_pcl", "nama_pml"] + [
-                c for c in agg_pcl.columns if c not in ["nama_pcl", "nama_pml"]
-            ]
-            agg_pcl = agg_pcl[col_order]
-
-        disp_pcl = rename_display(agg_pcl)
-        col_cfg_pcl = {}
-
-        if "Progress (%)" in disp_pcl.columns:
-            col_cfg_pcl["Progress (%)"] = st.column_config.ProgressColumn(
-                "Progress (%)",
-                min_value=0,
-                max_value=100,
-                format="%.1f%%"
-            )
-
-        st.dataframe(
-            disp_pcl,
-            use_container_width=True,
-            column_config=col_cfg_pcl,
-            hide_index=True
-        )
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        st.download_button(
-            label="Download Rekap Pencacah (XLSX)",
-            data=to_excel(disp_pcl, sheet_name="Rekap Pencacah"),
-            file_name=f"rekap_pencacah_{timestamp}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="download_pcl"
-        )
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 3 — Per Pengawas (PML)
-# ══════════════════════════════════════════════════════════════════════════════
-with tab_pml:
-    st.subheader("Monitoring Per Pengawas (PML)")
-    st.caption("Aktivitas penanganan pengawas dihitung dari total status Approve, Reject, dan Edited.")
-
-    if "nama_pml" not in df.columns:
-        st.warning("Kolom nama_pml tidak ditemukan dalam dataset.")
-    else:
-        approve_cols_pml = [c for c in status_cols if "APPROV" in c.upper()]
-        reject_cols_pml  = [c for c in status_cols if any(k in c.upper() for k in ["REJECT", "DITOLAK"])]
-        edited_cols_pml  = [c for c in status_cols if any(k in c.upper() for k in ["EDIT", "EDITED", "DIEDIT"])]
-
-        agg_cols_pml = (
-            status_cols
-            + (["total_data"] if "total_data" in df.columns else [])
-            + (["jumlah_prelist_awal"] if "jumlah_prelist_awal" in df.columns else [])
-        )
-        agg_pml = df.groupby("nama_pml")[agg_cols_pml].sum().reset_index()
-
-        if "nama_pcl" in df.columns:
-            pcl_count = df.groupby("nama_pml")["nama_pcl"].nunique().reset_index(name="Jumlah Pencacah")
-            agg_pml = agg_pml.merge(pcl_count, on="nama_pml", how="left")
-
-        agg_pml["Approve"] = agg_pml[approve_cols_pml].sum(axis=1) if approve_cols_pml else 0
-        agg_pml["Reject"]  = agg_pml[reject_cols_pml].sum(axis=1)  if reject_cols_pml  else 0
-        agg_pml["Edited"]  = agg_pml[edited_cols_pml].sum(axis=1)  if edited_cols_pml  else 0
-
-        if "total_data" in agg_pml.columns:
-            agg_pml["Progress Pengawas (Total Muatan) (%)"] = (
-                (agg_pml["Approve"] + agg_pml["Reject"] + agg_pml["Edited"])
-                / agg_pml["total_data"].replace(0, pd.NA) * 100
-            ).round(1).fillna(0)
-
-        if "jumlah_prelist_awal" in agg_pml.columns:
-            agg_pml["Progress Pengawas (Jumlah Prelist Awal) (%)"] = (
-                (agg_pml["Approve"] + agg_pml["Reject"] + agg_pml["Edited"])
-                / agg_pml["jumlah_prelist_awal"].replace(0, pd.NA) * 100
-            ).round(1).fillna(0)
-
-        if "Progress Pengawas (Total Muatan) (%)" in agg_pml.columns:
-            agg_pml = agg_pml.sort_values("Progress Pengawas (Total Muatan) (%)", ascending=False)
+        # ─────────────────────────────────────────────────────────────────────
+        # KPI Cards
+        # ─────────────────────────────────────────────────────────────────────
+        n_pcl      = df["nama_pcl"].nunique() if "nama_pcl" in df.columns else 0
+        n_pml      = df["nama_pml"].nunique() if "nama_pml" in df.columns else 0
+        if "nmkec" in df.columns and "nmdesa" in df.columns:
+            n_desa = df[["nmkec", "nmdesa"]].drop_duplicates().shape[0]
+        elif "nmdesa" in df.columns:
+            n_desa = df["nmdesa"].nunique()
         else:
-            agg_pml = agg_pml.sort_values("Approve", ascending=False)
+            n_desa = 0
+        total_data = int(df["total_data"].sum()) if "total_data" in df.columns else int(df[status_cols].sum().sum())
 
-        total_approve_pml = int(agg_pml["Approve"].sum()) if "Approve" in agg_pml.columns else 0
-        total_reject_pml  = int(agg_pml["Reject"].sum())  if "Reject"  in agg_pml.columns else 0
-        total_edited_pml  = int(agg_pml["Edited"].sum())  if "Edited"  in agg_pml.columns else 0
+        done_cols     = [c for c in status_cols if any(k in c.upper() for k in DONE_KEYWORDS)]
+        draft_cols    = [c for c in status_cols if "DRAFT" in c.upper()]
+        rejected_cols = [c for c in status_cols if any(k in c.upper() for k in ["REJECT", "DITOLAK"])]
 
-        p1, p2, p3, p4 = st.columns(4)
-        p1.metric("Total Pengawas", f"{agg_pml['nama_pml'].nunique():,}")
-        p2.metric("Approve", f"{total_approve_pml:,}")
-        p3.metric("Reject", f"{total_reject_pml:,}")
-        p4.metric("Edited", f"{total_edited_pml:,}")
+        total_draft    = int(df[draft_cols].sum().sum())    if draft_cols    else 0
+        total_done     = int(df[done_cols].sum().sum())     if done_cols     else 0
+        total_rejected = int(df[rejected_cols].sum().sum()) if rejected_cols else 0
+
+        progress_without_draft_cols = [
+            c for c in status_cols
+            if not any(k in c.upper() for k in ["DRAFT", "OPEN"])
+        ]
+        progress_with_draft_cols = [
+            c for c in status_cols
+            if not any(k in c.upper() for k in ["OPEN"])
+        ]
+
+        total_progress_without_draft = int(df[progress_without_draft_cols].sum().sum()) if progress_without_draft_cols else 0
+        total_progress_with_draft    = int(df[progress_with_draft_cols].sum().sum())    if progress_with_draft_cols else 0
+
+        pct_progress_without_draft = (total_progress_without_draft / total_data * 100) if total_data else 0
+        pct_progress_with_draft    = (total_progress_with_draft / total_data * 100)    if total_data else 0
+
+        k1, k2, k3, k4, k5, k6, k7 = st.columns(7)
+        k1.metric("Pencacah", f"{n_pcl:,}")
+        k2.metric("Pengawas", f"{n_pml:,}")
+        k3.metric("Desa", f"{n_desa:,}")
+        k4.metric("Total Muatan", f"{total_data:,}")
+        k5.metric("Draft", f"{total_draft:,}")
+        k6.metric("Selesai", f"{total_done:,}")
+        k7.metric("Ditolak", f"{total_rejected:,}")
 
         st.divider()
 
-        chart_cols_pml = [c for c in ["Approve", "Reject", "Edited"] if c in agg_pml.columns]
-        if chart_cols_pml:
-            chart_pml = agg_pml.copy()
-            chart_pml["Total Ditangani"] = chart_pml[chart_cols_pml].sum(axis=1)
-            chart_pml = chart_pml.sort_values("Total Ditangani", ascending=False)
+        # ─────────────────────────────────────────────────────────────────────
+        # SUB TABS (Level 2): Menu Navigasi 6 Modul
+        # ─────────────────────────────────────────────────────────────────────
+        tab_overview, tab_pcl, tab_pml, tab_target, tab_desa, tab_raw = st.tabs([
+            "Distribusi Status",
+            "Kinerja Pencacah",
+            "Kinerja Pengawas",
+            "Target & Proyeksi",
+            "Rekap Wilayah",
+            "Data Mentah",
+        ])
 
-            top_n_pml = 30
-            chart_pml_top = chart_pml.head(top_n_pml)
+        # ═════════════════════════════════════════════════════════════════════
+        # TAB 1 — Distribusi Status
+        # ═════════════════════════════════════════════════════════════════════
+        with tab_overview:
+            st.subheader(f"Distribusi Status Keseluruhan — {selected_sheet}")
 
-            melt_pml = chart_pml_top.melt(
-                id_vars="nama_pml",
-                value_vars=chart_cols_pml,
-                var_name="Status",
-                value_name="Jumlah"
-            )
+            status_totals_all = df[status_cols].sum().sort_values(ascending=False)
+            status_totals_all = status_totals_all[status_totals_all > 0]
 
-            fig_pml = px.bar(
-                melt_pml,
-                x="Jumlah",
-                y="nama_pml",
-                color="Status",
-                orientation="h",
-                barmode="stack",
-                text="Jumlah",
-                color_discrete_map={
-                    "Approve": "#2A9D8F",
-                    "Reject": "#E76F51",
-                    "Edited": "#ECB65F",
-                },
-                template=PLOT_TEMPLATE,
-                labels={"nama_pml": "", "Jumlah": "Jumlah Muatan"},
-            )
-            fig_pml.update_traces(textposition="inside", textfont_size=10)
-            fig_pml.update_layout(
-                **styled_chart_layout(height=max(380, len(chart_pml_top) * 28)),
-                xaxis=dict(showgrid=True, gridcolor="#EFE9E0"),
-                yaxis=dict(showgrid=False, categoryorder="total ascending"),
-                legend=dict(orientation="h", y=1.08),
-            )
-            st.plotly_chart(fig_pml, use_container_width=True)
+            status_cols_without_draft = [c for c in status_cols if c not in draft_cols]
+            status_totals_without_draft = df[status_cols_without_draft].sum().sort_values(ascending=False) if status_cols_without_draft else pd.Series(dtype=float)
+            status_totals_without_draft = status_totals_without_draft[status_totals_without_draft > 0]
 
-        st.markdown("#### Detail Tabel Pengawas")
+            def render_status_distribution(status_totals_view, pct_value, title_gauge, total_progress_value, key_prefix="default"):
+                if status_totals_view.empty:
+                    st.info("Belum ada data status bernilai lebih dari 0.")
+                    return
 
-        show_cols_pml = ["nama_pml"]
-        if "Jumlah Pencacah" in agg_pml.columns:
-            show_cols_pml.append("Jumlah Pencacah")
-        if "total_data" in agg_pml.columns:
-            show_cols_pml.append("total_data")
-        if "jumlah_prelist_awal" in agg_pml.columns:
-            show_cols_pml.append("jumlah_prelist_awal")
-        show_cols_pml += ["Approve", "Reject", "Edited"]
-        if "Progress Pengawas (Total Muatan) (%)" in agg_pml.columns:
-            show_cols_pml.append("Progress Pengawas (Total Muatan) (%)")
+                c_bar, c_pie, c_gauge = st.columns([3, 2, 2])
 
-        disp_pml = agg_pml[show_cols_pml].rename(columns={
-            "nama_pml": "Nama Pengawas",
-            "total_data": "Total Muatan",
-            "jumlah_prelist_awal": "Jumlah Prelist Awal",
-        })
+                with c_bar:
+                    fig_bar = px.bar(
+                        x=status_totals_view.values,
+                        y=status_totals_view.index,
+                        orientation="h",
+                        labels={"x": "Jumlah Usaha", "y": ""},
+                        text=[f"{int(v):,}" for v in status_totals_view.values],
+                        color=status_totals_view.index,
+                        color_discrete_sequence=CHART_PALETTE,
+                        template=PLOT_TEMPLATE,
+                    )
+                    fig_bar.update_traces(textposition="outside", textfont_size=11)
+                    fig_bar.update_layout(
+                        **styled_chart_layout(showlegend=False, height=360),
+                        xaxis=dict(showgrid=True, gridcolor="#EFE9E0"),
+                        yaxis=dict(showgrid=False),
+                    )
+                    st.plotly_chart(fig_bar, use_container_width=True, key=f"bar_{selected_sheet}_{key_prefix}")
 
-        col_cfg_pml = {}
-        if "Progress Pengawas (Total Muatan) (%)" in disp_pml.columns:
-            col_cfg_pml["Progress Pengawas (Total Muatan) (%)"] = st.column_config.ProgressColumn(
-                "Progress Pengawas (%)",
-                min_value=0,
-                max_value=100,
-                format="%.1f%%"
-            )
+                with c_pie:
+                    fig_pie = px.pie(
+                        values=status_totals_view.values,
+                        names=status_totals_view.index,
+                        hole=0.5,
+                        color_discrete_sequence=CHART_PALETTE,
+                        template=PLOT_TEMPLATE,
+                    )
+                    fig_pie.update_traces(
+                        textinfo="percent",
+                        textfont_size=11,
+                        hovertemplate="<b>%{label}</b><br>%{value:,} usaha<br>%{percent}<extra></extra>",
+                    )
+                    fig_pie.update_layout(**styled_chart_layout(
+                        height=360, showlegend=True,
+                        legend=dict(orientation="v", x=1.0),
+                    ))
+                    st.plotly_chart(fig_pie, use_container_width=True, key=f"pie_{selected_sheet}_{key_prefix}")
 
-        st.dataframe(
-            disp_pml,
-            use_container_width=True,
-            column_config=col_cfg_pml,
-            hide_index=True
-        )
+                with c_gauge:
+                    st.metric("Jumlah Progress Ditangani", f"{total_progress_value:,}")
 
-        st.download_button(
-            label="Download Rekap Pengawas (XLSX)",
-            data=to_excel(disp_pml, sheet_name="Rekap Pengawas"),
-            file_name=f"rekap_pengawas_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="download_pml"
-        )
+                    fig_gauge = go.Figure(go.Indicator(
+                        mode="gauge+number",
+                        value=pct_value,
+                        number={"suffix": "%", "valueformat": ".2f", "font": {"size": 34, "color": "#2D3748", "family": "JetBrains Mono"}},
+                        title={"text": title_gauge, "font": {"color": "#8C7355", "size": 13, "family": "Plus Jakarta Sans"}},
+                        gauge={
+                            "axis": {"range": [0, 100], "tickcolor": "#CBD5E1", "tickfont": {"color": "#64748B", "size": 10}},
+                            "bar": {"color": "#ECB65F", "thickness": 0.28},
+                            "bgcolor": "rgba(0,0,0,0)",
+                            "bordercolor": "#EFE9E0",
+                            "steps": [
+                                {"range": [0, 50], "color": "#FFF8EE"},
+                                {"range": [50, 80], "color": "#FDF0D5"},
+                                {"range": [80, 100], "color": "#FCE3B4"},
+                            ],
+                            "threshold": {"line": {"color": "#D8983B", "width": 3}, "thickness": 0.8, "value": pct_value},
+                        },
+                    ))
+                    fig_gauge.update_layout(**styled_chart_layout(height=300))
+                    st.plotly_chart(fig_gauge, use_container_width=True, key=f"gauge_{selected_sheet}_{key_prefix}")
 
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 4 — Target Harian & Proyeksi
-# ══════════════════════════════════════════════════════════════════════════════
-with tab_target:
-    st.subheader("Jadwal & Target Proyeksi Penyelesaian")
+            sub_tab1, sub_tab2 = st.tabs(["Tanpa Draft", "Termasuk Draft"])
 
-    if "nama_pcl" not in df.columns or "total_data" not in df.columns:
-        st.warning("Kolom nama_pcl atau total_data tidak ditemukan.")
-    else:
-        today_wit = datetime.now(ZoneInfo("Asia/Jayapura")).date()
+            with sub_tab1:
+                render_status_distribution(
+                    status_totals_without_draft,
+                    pct_progress_without_draft,
+                    "Progress Tanpa Draft",
+                    total_progress_without_draft,
+                    key_prefix="no_draft",
+                )
 
-        if "milestone_editor_data" not in st.session_state:
-            st.session_state["milestone_editor_data"] = pd.DataFrame([
-                {"Tanggal": date(2026, 6, 30), "Target (%)": 25},
-                {"Tanggal": date(2026, 7, 14), "Target (%)": 40},
-                {"Tanggal": date(2026, 7, 31), "Target (%)": 75},
-                {"Tanggal": date(2026, 8, 15), "Target (%)": 100},  # <--- Diubah ke 15 Agustus
-            ])
+            with sub_tab2:
+                render_status_distribution(
+                    status_totals_all,
+                    pct_progress_with_draft,
+                    "Progress Termasuk Draft",
+                    total_progress_with_draft,
+                    key_prefix="with_draft",
+                )
 
-        milestone_df = st.data_editor(
-            st.session_state["milestone_editor_data"],
-            num_rows="dynamic",
-            use_container_width=True,
-            hide_index=True,
-            key="milestone_editor",
-            column_config={
-                "Tanggal": st.column_config.DateColumn("Tanggal Target", format="DD MMM YYYY"),
-                "Target (%)": st.column_config.NumberColumn("Target (%)", min_value=0, max_value=100, step=1),
-            },
-        )
-        milestone_df = milestone_df.dropna().copy()
-        milestone_df["Tanggal"] = pd.to_datetime(milestone_df["Tanggal"]).dt.date
-        milestone_df = milestone_df.sort_values("Tanggal").reset_index(drop=True)
+        # ═════════════════════════════════════════════════════════════════════
+        # TAB 2 — Per Pencacah (PCL)
+        # ═════════════════════════════════════════════════════════════════════
+        with tab_pcl:
+            st.subheader(f"Monitoring Per Pencacah (PCL) — {selected_sheet}")
 
-        if not milestone_df.empty:
-            total_data_all = float(df["total_data"].sum())
-            total_progress_nodraft = float(df[progress_without_draft_cols].sum().sum()) if progress_without_draft_cols else 0.0
-            pct_now = (total_progress_nodraft / total_data_all * 100) if total_data_all else 0.0
+            if "nama_pcl" not in df.columns:
+                st.warning("Kolom nama_pcl tidak ditemukan dalam dataset.")
+            else:
+                agg_cols = status_cols + (["total_data"] if "total_data" in df.columns else [])
+                agg_pcl  = df.groupby("nama_pcl")[agg_cols].sum().reset_index()
 
-            status_rows = []
-            next_milestone = None
-            for _, m in milestone_df.iterrows():
-                m_date, m_pct = m["Tanggal"], m["Target (%)"]
-                if m_date < today_wit:
-                    status = "Tercapai" if pct_now >= m_pct else "Belum Tercapai (Lewat)"
-                elif m_date == today_wit:
-                    status = "Tercapai" if pct_now >= m_pct else "Target Hari Ini"
+                if "total_data" in agg_pcl.columns and progress_without_draft_cols:
+                    agg_pcl["Progress (%)"] = (
+                        agg_pcl[progress_without_draft_cols].sum(axis=1)
+                        / agg_pcl["total_data"].replace(0, pd.NA) * 100
+                    ).round(1).fillna(0)
+
+                if "total_data" in agg_pcl.columns:
+                    agg_pcl = agg_pcl.sort_values("total_data", ascending=False)
+
+                max_show  = 30
+                chart_pcl = agg_pcl.head(max_show)
+                if len(agg_pcl) > max_show:
+                    st.caption(f"Menampilkan {max_show} pencacah terbesar dari total {len(agg_pcl)} pencacah.")
+
+                fig_pcl = go.Figure()
+                for i, c in enumerate(status_cols):
+                    if c in chart_pcl.columns:
+                        fig_pcl.add_trace(go.Bar(
+                            name=c,
+                            x=chart_pcl["nama_pcl"],
+                            y=chart_pcl[c],
+                            marker_color=CHART_PALETTE[i % len(CHART_PALETTE)],
+                            hovertemplate="<b>%{x}</b><br>" + c + ": %{y:,}<extra></extra>",
+                        ))
+                fig_pcl.update_layout(
+                    barmode="stack",
+                    **styled_chart_layout(height=420),
+                    xaxis=dict(tickangle=-40, showgrid=False, tickfont_size=10, title="Nama Pencacah"),
+                    yaxis=dict(showgrid=True, gridcolor="#EFE9E0", title="Jumlah Usaha"),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font_size=11),
+                )
+                st.plotly_chart(fig_pcl, use_container_width=True, key=f"chart_pcl_{selected_sheet}")
+
+                st.markdown("#### Detail Tabel Pencacah")
+
+                if "total_data" in agg_pcl.columns:
+                    agg_pcl["_sum"]    = agg_pcl[status_cols].sum(axis=1)
+                    agg_pcl["Selisih"] = agg_pcl["total_data"] - agg_pcl["_sum"]
+                    agg_pcl = agg_pcl.drop(columns=["_sum"])
+
+                if "nama_pml" in df.columns:
+                    pml_map = df.groupby("nama_pcl")["nama_pml"].first().reset_index()
+                    agg_pcl = agg_pcl.merge(pml_map, on="nama_pcl", how="left")
+                    col_order = ["nama_pcl", "nama_pml"] + [
+                        c for c in agg_pcl.columns if c not in ["nama_pcl", "nama_pml"]
+                    ]
+                    agg_pcl = agg_pcl[col_order]
+
+                disp_pcl = rename_display(agg_pcl)
+                col_cfg_pcl = {}
+
+                if "Progress (%)" in disp_pcl.columns:
+                    col_cfg_pcl["Progress (%)"] = st.column_config.ProgressColumn(
+                        "Progress (%)",
+                        min_value=0,
+                        max_value=100,
+                        format="%.1f%%"
+                    )
+
+                st.dataframe(
+                    disp_pcl,
+                    use_container_width=True,
+                    column_config=col_cfg_pcl,
+                    hide_index=True
+                )
+
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                st.download_button(
+                    label="Download Rekap Pencacah (XLSX)",
+                    data=to_excel(disp_pcl, sheet_name="Rekap Pencacah"),
+                    file_name=f"rekap_pencacah_{selected_sheet.lower()}_{timestamp}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"download_pcl_{selected_sheet}"
+                )
+
+        # ═════════════════════════════════════════════════════════════════════
+        # TAB 3 — Per Pengawas (PML)
+        # ═════════════════════════════════════════════════════════════════════
+        with tab_pml:
+            st.subheader(f"Monitoring Per Pengawas (PML) — {selected_sheet}")
+            st.caption("Aktivitas penanganan pengawas dihitung dari total status Approve, Reject, dan Edited.")
+
+            if "nama_pml" not in df.columns:
+                st.warning("Kolom nama_pml tidak ditemukan dalam dataset.")
+            else:
+                approve_cols_pml = [c for c in status_cols if "APPROV" in c.upper()]
+                reject_cols_pml  = [c for c in status_cols if any(k in c.upper() for k in ["REJECT", "DITOLAK"])]
+                edited_cols_pml  = [c for c in status_cols if any(k in c.upper() for k in ["EDIT", "EDITED", "DIEDIT"])]
+
+                agg_cols_pml = (
+                    status_cols
+                    + (["total_data"] if "total_data" in df.columns else [])
+                    + (["jumlah_prelist_awal"] if "jumlah_prelist_awal" in df.columns else [])
+                )
+                agg_pml = df.groupby("nama_pml")[agg_cols_pml].sum().reset_index()
+
+                if "nama_pcl" in df.columns:
+                    pcl_count = df.groupby("nama_pml")["nama_pcl"].nunique().reset_index(name="Jumlah Pencacah")
+                    agg_pml = agg_pml.merge(pcl_count, on="nama_pml", how="left")
+
+                agg_pml["Approve"] = agg_pml[approve_cols_pml].sum(axis=1) if approve_cols_pml else 0
+                agg_pml["Reject"]  = agg_pml[reject_cols_pml].sum(axis=1)  if reject_cols_pml  else 0
+                agg_pml["Edited"]  = agg_pml[edited_cols_pml].sum(axis=1)  if edited_cols_pml  else 0
+
+                if "total_data" in agg_pml.columns:
+                    agg_pml["Progress Pengawas (Total Muatan) (%)"] = (
+                        (agg_pml["Approve"] + agg_pml["Reject"] + agg_pml["Edited"])
+                        / agg_pml["total_data"].replace(0, pd.NA) * 100
+                    ).round(1).fillna(0)
+
+                if "jumlah_prelist_awal" in agg_pml.columns:
+                    agg_pml["Progress Pengawas (Jumlah Prelist Awal) (%)"] = (
+                        (agg_pml["Approve"] + agg_pml["Reject"] + agg_pml["Edited"])
+                        / agg_pml["jumlah_prelist_awal"].replace(0, pd.NA) * 100
+                    ).round(1).fillna(0)
+
+                if "Progress Pengawas (Total Muatan) (%)" in agg_pml.columns:
+                    agg_pml = agg_pml.sort_values("Progress Pengawas (Total Muatan) (%)", ascending=False)
                 else:
-                    status = "Akan Datang"
-                    if next_milestone is None and pct_now < m_pct:
-                        next_milestone = (m_date, m_pct)
-                status_rows.append({
-                    "Tanggal": m_date,
-                    "Target (%)": m_pct,
-                    "Target Muatan": int(total_data_all * m_pct / 100),
-                    "Status": status,
-                })
-            milestone_status_df = pd.DataFrame(status_rows)
+                    agg_pml = agg_pml.sort_values("Approve", ascending=False)
 
-            st.dataframe(milestone_status_df, use_container_width=True, hide_index=True)
+                total_approve_pml = int(agg_pml["Approve"].sum()) if "Approve" in agg_pml.columns else 0
+                total_reject_pml  = int(agg_pml["Reject"].sum())  if "Reject"  in agg_pml.columns else 0
+                total_edited_pml  = int(agg_pml["Edited"].sum())  if "Edited"  in agg_pml.columns else 0
 
-            fig_curve = go.Figure()
-            fig_curve.add_trace(go.Scatter(
-                x=pd.to_datetime(milestone_status_df["Tanggal"]),
-                y=milestone_status_df["Target (%)"],
-                mode="lines+markers+text",
-                name="Rencana",
-                text=[f"{p}%" for p in milestone_status_df["Target (%)"]],
-                textposition="top center",
-                line=dict(color="#D8983B", width=3, dash="dot"),
-                marker=dict(size=8, color="#D8983B"),
-            ))
-            fig_curve.add_trace(go.Scatter(
-                x=[pd.to_datetime(today_wit)],
-                y=[pct_now],
-                mode="markers+text",
-                name="Realisasi Saat Ini",
-                text=[f"{pct_now:.1f}%"],
-                textposition="bottom center",
-                marker=dict(size=14, color="#2A9D8F", symbol="circle"),
-            ))
-            fig_curve.update_layout(
-                **styled_chart_layout(height=340),
-                xaxis=dict(title="Tanggal", showgrid=False),
-                yaxis=dict(title="Progress (%)", range=[0, 108], showgrid=True, gridcolor="#EFE9E0"),
-                legend=dict(orientation="h", y=1.12),
-            )
-            st.plotly_chart(fig_curve, use_container_width=True)
-
-            st.divider()
-
-            if next_milestone is not None:
-                target_date, target_pct = next_milestone
-                days_left = max((target_date - today_wit).days, 1)
-
-                target_value_team = total_data_all * target_pct / 100
-                sisa_team = max(target_value_team - total_progress_nodraft, 0)
-                target_harian_team = int(np.ceil(sisa_team / days_left))
-
-                tk1, tk2, tk3, tk4 = st.columns(4)
-                tk1.metric("Progress Realisasi", f"{pct_now:.1f}%")
-                tk2.metric("Milestone Target", f"{target_pct:.0f}%")
-                tk3.metric("Sisa Waktu", f"{days_left} hari")
-                tk4.metric("Target Harian Tim", f"{target_harian_team:,}/hari")
+                p1, p2, p3, p4 = st.columns(4)
+                p1.metric("Total Pengawas", f"{agg_pml['nama_pml'].nunique():,}")
+                p2.metric("Approve", f"{total_approve_pml:,}")
+                p3.metric("Reject", f"{total_reject_pml:,}")
+                p4.metric("Edited", f"{total_edited_pml:,}")
 
                 st.divider()
 
-                agg_t = df.groupby("nama_pcl")[status_cols + ["total_data"]].sum().reset_index()
-                agg_t["Progres"] = agg_t[progress_without_draft_cols].sum(axis=1) if progress_without_draft_cols else 0
-                agg_t["Progress (%)"] = (
-                    agg_t["Progres"] / agg_t["total_data"].replace(0, pd.NA) * 100
-                ).round(1).fillna(0)
-                agg_t["Target Muatan"] = (
-                    agg_t["total_data"] * target_pct / 100
-                ).round().astype(int)
-                agg_t["Sisa Target"] = (
-                    agg_t["Target Muatan"] - agg_t["Progres"]
-                ).clip(lower=0)
-                agg_t["Target Harian"] = np.ceil(agg_t["Sisa Target"] / days_left).astype(int)
-                agg_t = agg_t.sort_values("Target Harian", ascending=False)
+                chart_cols_pml = [c for c in ["Approve", "Reject", "Edited"] if c in agg_pml.columns]
+                if chart_cols_pml:
+                    chart_pml = agg_pml.copy()
+                    chart_pml["Total Ditangani"] = chart_pml[chart_cols_pml].sum(axis=1)
+                    chart_pml = chart_pml.sort_values("Total Ditangani", ascending=False)
 
-                st.markdown("#### Detail Target Harian per Pencacah")
+                    top_n_pml = 30
+                    chart_pml_top = chart_pml.head(top_n_pml)
 
-                cols_show = ["nama_pcl", "total_data", "Progres", "Progress (%)",
-                             "Target Muatan", "Sisa Target", "Target Harian"]
-                if "nama_pml" in df.columns:
-                    pml_map = df.groupby("nama_pcl")["nama_pml"].first().reset_index()
-                    agg_t = agg_t.merge(pml_map, on="nama_pcl", how="left")
-                    cols_show.insert(1, "nama_pml")
+                    melt_pml = chart_pml_top.melt(
+                        id_vars="nama_pml",
+                        value_vars=chart_cols_pml,
+                        var_name="Status",
+                        value_name="Jumlah"
+                    )
 
-                disp_t = rename_display(agg_t[cols_show])
+                    fig_pml = px.bar(
+                        melt_pml,
+                        x="Jumlah",
+                        y="nama_pml",
+                        color="Status",
+                        orientation="h",
+                        barmode="stack",
+                        text="Jumlah",
+                        color_discrete_map={
+                            "Approve": "#2A9D8F",
+                            "Reject": "#E76F51",
+                            "Edited": "#ECB65F",
+                        },
+                        template=PLOT_TEMPLATE,
+                        labels={"nama_pml": "", "Jumlah": "Jumlah Muatan"},
+                    )
+                    fig_pml.update_traces(textposition="inside", textfont_size=10)
+                    fig_pml.update_layout(
+                        **styled_chart_layout(height=max(380, len(chart_pml_top) * 28)),
+                        xaxis=dict(showgrid=True, gridcolor="#EFE9E0"),
+                        yaxis=dict(showgrid=False, categoryorder="total ascending"),
+                        legend=dict(orientation="h", y=1.08),
+                    )
+                    st.plotly_chart(fig_pml, use_container_width=True, key=f"chart_pml_{selected_sheet}")
+
+                st.markdown("#### Detail Tabel Pengawas")
+
+                show_cols_pml = ["nama_pml"]
+                if "Jumlah Pencacah" in agg_pml.columns:
+                    show_cols_pml.append("Jumlah Pencacah")
+                if "total_data" in agg_pml.columns:
+                    show_cols_pml.append("total_data")
+                if "jumlah_prelist_awal" in agg_pml.columns:
+                    show_cols_pml.append("jumlah_prelist_awal")
+                show_cols_pml += ["Approve", "Reject", "Edited"]
+                if "Progress Pengawas (Total Muatan) (%)" in agg_pml.columns:
+                    show_cols_pml.append("Progress Pengawas (Total Muatan) (%)")
+
+                disp_pml = agg_pml[show_cols_pml].rename(columns={
+                    "nama_pml": "Nama Pengawas",
+                    "total_data": "Total Muatan",
+                    "jumlah_prelist_awal": "Jumlah Prelist Awal",
+                })
+
+                col_cfg_pml = {}
+                if "Progress Pengawas (Total Muatan) (%)" in disp_pml.columns:
+                    col_cfg_pml["Progress Pengawas (Total Muatan) (%)"] = st.column_config.ProgressColumn(
+                        "Progress Pengawas (%)",
+                        min_value=0,
+                        max_value=100,
+                        format="%.1f%%"
+                    )
 
                 st.dataframe(
-                    disp_t,
+                    disp_pml,
                     use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "Progress (%)": st.column_config.ProgressColumn(
-                            "Progress (%)", min_value=0, max_value=100, format="%.1f%%"
-                        )
-                    },
+                    column_config=col_cfg_pml,
+                    hide_index=True
                 )
 
                 st.download_button(
-                    "Download Target Harian (XLSX)",
-                    data=to_excel(disp_t, sheet_name="Target Harian"),
-                    file_name=f"target_harian_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    label="Download Rekap Pengawas (XLSX)",
+                    data=to_excel(disp_pml, sheet_name="Rekap Pengawas"),
+                    file_name=f"rekap_pengawas_{selected_sheet.lower()}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="download_target",
+                    key=f"download_pml_{selected_sheet}"
                 )
 
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 5 — Per Desa
-# ══════════════════════════════════════════════════════════════════════════════
-with tab_desa:
-    st.subheader("Rekapitualisasi Per Desa / Kelurahan")
+        # ═════════════════════════════════════════════════════════════════════
+        # TAB 4 — Target Harian & Proyeksi
+        # ═════════════════════════════════════════════════════════════════════
+        with tab_target:
+            st.subheader(f"Jadwal & Target Proyeksi Penyelesaian — {selected_sheet}")
 
-    if "nmdesa" not in df.columns:
-        st.warning("Kolom nmdesa tidak ditemukan.")
-    else:
-        grp_keys   = [c for c in ["nmkec", "nmdesa"] if c in df.columns]
-        agg_cols_d = status_cols + (["total_data"] if "total_data" in df.columns else [])
-        agg_desa   = df.groupby(grp_keys)[agg_cols_d].sum().reset_index()
+            if "nama_pcl" not in df.columns or "total_data" not in df.columns:
+                st.warning("Kolom nama_pcl atau total_data tidak ditemukan.")
+            else:
+                today_wit = datetime.now(ZoneInfo("Asia/Jayapura")).date()
 
-        if "total_data" in agg_desa.columns and done_cols:
-            agg_desa["Progress (%)"] = (
-                agg_desa[done_cols].sum(axis=1)
-                / agg_desa["total_data"].replace(0, pd.NA) * 100
-            ).round(1).fillna(0)
-            agg_desa = agg_desa.sort_values("Progress (%)", ascending=False)
+                milestone_key = f"milestone_editor_data_{selected_sheet}"
+                if milestone_key not in st.session_state:
+                    st.session_state[milestone_key] = pd.DataFrame([
+                        {"Tanggal": date(2026, 10, 28), "Target (%)": 50},
+                        {"Tanggal": date(2026, 11, 4), "Target (%)": 100},
+                    ])
 
-        if "nama_pcl" in df.columns:
-            pcl_per_desa = df.groupby(grp_keys)["nama_pcl"].nunique().reset_index(
-                name="Jumlah PCL")
-            agg_desa = agg_desa.merge(pcl_per_desa, on=grp_keys, how="left")
+                milestone_df = st.data_editor(
+                    st.session_state[milestone_key],
+                    num_rows="dynamic",
+                    use_container_width=True,
+                    hide_index=True,
+                    key=f"milestone_editor_{selected_sheet}",
+                    column_config={
+                        "Tanggal": st.column_config.DateColumn("Tanggal Target", format="DD MMM YYYY"),
+                        "Target (%)": st.column_config.NumberColumn("Target (%)", min_value=0, max_value=100, step=1),
+                    },
+                )
+                milestone_df = milestone_df.dropna().copy()
+                milestone_df["Tanggal"] = pd.to_datetime(milestone_df["Tanggal"]).dt.date
+                milestone_df = milestone_df.sort_values("Tanggal").reset_index(drop=True)
 
-        if "Progress (%)" in agg_desa.columns:
-            top_desa = 30
-            hm_df    = agg_desa.head(top_desa).copy()
+                if not milestone_df.empty:
+                    total_data_all = float(df["total_data"].sum())
+                    total_progress_nodraft = float(df[progress_without_draft_cols].sum().sum()) if progress_without_draft_cols else 0.0
+                    pct_now = (total_progress_nodraft / total_data_all * 100) if total_data_all else 0.0
 
-            label_col = "nmdesa"
-            if "nmkec" in hm_df.columns:
-                hm_df["_label"] = hm_df["nmkec"] + " - " + hm_df["nmdesa"]
-                label_col = "_label"
+                    status_rows = []
+                    next_milestone = None
+                    for _, m in milestone_df.iterrows():
+                        m_date, m_pct = m["Tanggal"], m["Target (%)"]
+                        if m_date < today_wit:
+                            status = "Tercapai" if pct_now >= m_pct else "Belum Tercapai (Lewat)"
+                        elif m_date == today_wit:
+                            status = "Tercapai" if pct_now >= m_pct else "Target Hari Ini"
+                        else:
+                            status = "Akan Datang"
+                            if next_milestone is None and pct_now < m_pct:
+                                next_milestone = (m_date, m_pct)
+                        status_rows.append({
+                            "Tanggal": m_date,
+                            "Target (%)": m_pct,
+                            "Target Muatan": int(total_data_all * m_pct / 100),
+                            "Status": status,
+                        })
+                    milestone_status_df = pd.DataFrame(status_rows)
 
-            fig_desa_bar = px.bar(
-                hm_df.sort_values("Progress (%)"),
-                x="Progress (%)", y=label_col,
-                orientation="h",
-                text="Progress (%)",
-                color="Progress (%)",
-                color_continuous_scale=["#E76F51", "#ECB65F", "#2A9D8F"],
-                range_color=[0, 100],
-                template=PLOT_TEMPLATE,
-                labels={label_col: ""},
+                    st.dataframe(milestone_status_df, use_container_width=True, hide_index=True)
+
+                    fig_curve = go.Figure()
+                    fig_curve.add_trace(go.Scatter(
+                        x=pd.to_datetime(milestone_status_df["Tanggal"]),
+                        y=milestone_status_df["Target (%)"],
+                        mode="lines+markers+text",
+                        name="Rencana",
+                        text=[f"{p}%" for p in milestone_status_df["Target (%)"]],
+                        textposition="top center",
+                        line=dict(color="#D8983B", width=3, dash="dot"),
+                        marker=dict(size=8, color="#D8983B"),
+                    ))
+                    fig_curve.add_trace(go.Scatter(
+                        x=[pd.to_datetime(today_wit)],
+                        y=[pct_now],
+                        mode="markers+text",
+                        name="Realisasi Saat Ini",
+                        text=[f"{pct_now:.1f}%"],
+                        textposition="bottom center",
+                        marker=dict(size=14, color="#2A9D8F", symbol="circle"),
+                    ))
+                    fig_curve.update_layout(
+                        **styled_chart_layout(height=340),
+                        xaxis=dict(title="Tanggal", showgrid=False),
+                        yaxis=dict(title="Progress (%)", range=[0, 108], showgrid=True, gridcolor="#EFE9E0"),
+                        legend=dict(orientation="h", y=1.12),
+                    )
+                    st.plotly_chart(fig_curve, use_container_width=True, key=f"chart_curve_{selected_sheet}")
+
+                    st.divider()
+
+                    if next_milestone is not None:
+                        target_date, target_pct = next_milestone
+                        days_left = max((target_date - today_wit).days, 1)
+
+                        target_value_team = total_data_all * target_pct / 100
+                        sisa_team = max(target_value_team - total_progress_nodraft, 0)
+                        target_harian_team = int(np.ceil(sisa_team / days_left))
+
+                        tk1, tk2, tk3, tk4 = st.columns(4)
+                        tk1.metric("Progress Realisasi", f"{pct_now:.1f}%")
+                        tk2.metric("Milestone Target", f"{target_pct:.0f}%")
+                        tk3.metric("Sisa Waktu", f"{days_left} hari")
+                        tk4.metric("Target Harian Tim", f"{target_harian_team:,}/hari")
+
+                        st.divider()
+
+                        agg_t = df.groupby("nama_pcl")[status_cols + ["total_data"]].sum().reset_index()
+                        agg_t["Progres"] = agg_t[progress_without_draft_cols].sum(axis=1) if progress_without_draft_cols else 0
+                        agg_t["Progress (%)"] = (
+                            agg_t["Progres"] / agg_t["total_data"].replace(0, pd.NA) * 100
+                        ).round(1).fillna(0)
+                        agg_t["Target Muatan"] = (
+                            agg_t["total_data"] * target_pct / 100
+                        ).round().astype(int)
+                        agg_t["Sisa Target"] = (
+                            agg_t["Target Muatan"] - agg_t["Progres"]
+                        ).clip(lower=0)
+                        agg_t["Target Harian"] = np.ceil(agg_t["Sisa Target"] / days_left).astype(int)
+                        agg_t = agg_t.sort_values("Target Harian", ascending=False)
+
+                        st.markdown("#### Detail Target Harian per Pencacah")
+
+                        cols_show = ["nama_pcl", "total_data", "Progres", "Progress (%)",
+                                     "Target Muatan", "Sisa Target", "Target Harian"]
+                        if "nama_pml" in df.columns:
+                            pml_map = df.groupby("nama_pcl")["nama_pml"].first().reset_index()
+                            agg_t = agg_t.merge(pml_map, on="nama_pcl", how="left")
+                            cols_show.insert(1, "nama_pml")
+
+                        disp_t = rename_display(agg_t[cols_show])
+
+                        st.dataframe(
+                            disp_t,
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                "Progress (%)": st.column_config.ProgressColumn(
+                                    "Progress (%)", min_value=0, max_value=100, format="%.1f%%"
+                                )
+                            },
+                        )
+
+                        st.download_button(
+                            "Download Target Harian (XLSX)",
+                            data=to_excel(disp_t, sheet_name="Target Harian"),
+                            file_name=f"target_harian_{selected_sheet.lower()}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key=f"download_target_{selected_sheet}",
+                        )
+
+        # ═════════════════════════════════════════════════════════════════════
+        # TAB 5 — Rekap Wilayah
+        # ═════════════════════════════════════════════════════════════════════
+        with tab_desa:
+            st.subheader(f"Rekapitulasi Per Desa / Kelurahan — {selected_sheet}")
+
+            if "nmdesa" not in df.columns:
+                st.warning("Kolom nmdesa tidak ditemukan.")
+            else:
+                grp_keys   = [c for c in ["nmkec", "nmdesa"] if c in df.columns]
+                agg_cols_d = status_cols + (["total_data"] if "total_data" in df.columns else [])
+                agg_desa   = df.groupby(grp_keys)[agg_cols_d].sum().reset_index()
+
+                if "total_data" in agg_desa.columns and done_cols:
+                    agg_desa["Progress (%)"] = (
+                        agg_desa[done_cols].sum(axis=1)
+                        / agg_desa["total_data"].replace(0, pd.NA) * 100
+                    ).round(1).fillna(0)
+                    agg_desa = agg_desa.sort_values("Progress (%)", ascending=False)
+
+                if "nama_pcl" in df.columns:
+                    pcl_per_desa = df.groupby(grp_keys)["nama_pcl"].nunique().reset_index(
+                        name="Jumlah PCL")
+                    agg_desa = agg_desa.merge(pcl_per_desa, on=grp_keys, how="left")
+
+                if "Progress (%)" in agg_desa.columns:
+                    top_desa = 30
+                    hm_df    = agg_desa.head(top_desa).copy()
+
+                    label_col = "nmdesa"
+                    if "nmkec" in hm_df.columns:
+                        hm_df["_label"] = hm_df["nmkec"] + " - " + hm_df["nmdesa"]
+                        label_col = "_label"
+
+                    fig_desa_bar = px.bar(
+                        hm_df.sort_values("Progress (%)"),
+                        x="Progress (%)", y=label_col,
+                        orientation="h",
+                        text="Progress (%)",
+                        color="Progress (%)",
+                        color_continuous_scale=["#E76F51", "#ECB65F", "#2A9D8F"],
+                        range_color=[0, 100],
+                        template=PLOT_TEMPLATE,
+                        labels={label_col: ""},
+                    )
+                    fig_desa_bar.update_traces(
+                        texttemplate="%{text:.1f}%",
+                        textposition="outside",
+                        textfont_size=10,
+                    )
+                    fig_desa_bar.update_layout(
+                        **styled_chart_layout(
+                            height=max(400, len(hm_df) * 22),
+                            coloraxis_showscale=False,
+                        ),
+                        xaxis=dict(range=[0, 115], showgrid=False),
+                        yaxis=dict(showgrid=False),
+                    )
+                    st.plotly_chart(fig_desa_bar, use_container_width=True, key=f"chart_desa_{selected_sheet}")
+
+                st.markdown("#### Detail Tabel Desa")
+
+                disp_desa = agg_desa.drop(columns=["_label"], errors="ignore")
+                disp_desa = rename_display(disp_desa)
+
+                col_cfg_desa = {}
+                if "Progress (%)" in disp_desa.columns:
+                    col_cfg_desa["Progress (%)"] = st.column_config.ProgressColumn(
+                        "Progress (%)", min_value=0, max_value=100, format="%.1f%%"
+                    )
+
+                st.dataframe(disp_desa, use_container_width=True,
+                             column_config=col_cfg_desa, hide_index=True)
+
+        # ═════════════════════════════════════════════════════════════════════
+        # TAB 6 — Data Mentah
+        # ═════════════════════════════════════════════════════════════════════
+        with tab_raw:
+            st.subheader(f"Eksplorasi Data Mentah — {selected_sheet}")
+
+            all_cols  = df.columns.tolist()
+            show_cols = st.multiselect(
+                "Pilih Kolom Tampilan", all_cols,
+                default=all_cols[:min(15, len(all_cols))],
+                key=f"raw_cols_{selected_sheet}",
             )
-            fig_desa_bar.update_traces(
-                texttemplate="%{text:.1f}%",
-                textposition="outside",
-                textfont_size=10,
+
+            view_df = rename_display(df[show_cols] if show_cols else df)
+            st.dataframe(view_df, use_container_width=True, hide_index=True)
+
+            timestamp_raw = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            st.download_button(
+                label="Download Data Mentah (XLSX)",
+                data=to_excel(view_df, sheet_name="Data Mentah"),
+                file_name=f"data_mentah_{selected_sheet.lower()}_{timestamp_raw}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"download_raw_{selected_sheet}"
             )
-            fig_desa_bar.update_layout(
-                **styled_chart_layout(
-                    height=max(400, len(hm_df) * 22),
-                    coloraxis_showscale=False,
-                ),
-                xaxis=dict(range=[0, 115], showgrid=False),
-                yaxis=dict(showgrid=False),
-            )
-            st.plotly_chart(fig_desa_bar, use_container_width=True)
-
-        st.markdown("#### Detail Tabel Desa")
-
-        disp_desa = agg_desa.drop(columns=["_label"], errors="ignore")
-        disp_desa = rename_display(disp_desa)
-
-        col_cfg_desa = {}
-        if "Progress (%)" in disp_desa.columns:
-            col_cfg_desa["Progress (%)"] = st.column_config.ProgressColumn(
-                "Progress (%)", min_value=0, max_value=100, format="%.1f%%"
-            )
-
-        st.dataframe(disp_desa, use_container_width=True,
-                     column_config=col_cfg_desa, hide_index=True)
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 6 — Data Mentah
-# ══════════════════════════════════════════════════════════════════════════════
-with tab_raw:
-    st.subheader("Eksplorasi Data Mentah")
-
-    all_cols  = df.columns.tolist()
-    show_cols = st.multiselect(
-        "Pilih Kolom Tampilan", all_cols,
-        default=all_cols[:min(15, len(all_cols))],
-        key="raw_cols",
-    )
-
-    view_df = rename_display(df[show_cols] if show_cols else df)
-    st.dataframe(view_df, use_container_width=True, hide_index=True)
-
-    timestamp_raw = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    st.download_button(
-        label="Download Data Mentah (XLSX)",
-        data=to_excel(view_df, sheet_name="Data Mentah"),
-        file_name=f"data_mentah_{timestamp_raw}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        key="download_raw"
-    )
